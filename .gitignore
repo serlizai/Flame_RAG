@@ -1,0 +1,41 @@
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+.streamlit/secrets.toml
+
+# Local vector databases, downloaded data, and model weights
+/chroma_db*/
+/data/
+/models/
+/.cache/
+
+# Build artifacts and logs
+build/
+dist/
+*.egg-info/
+*.log
+/logs/
+
+# Operating system and editor files
+.DS_Store
+._*
+.idea/
+.vscode/
