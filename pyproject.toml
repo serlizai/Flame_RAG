@@ -11,7 +11,6 @@ maintainers = [
     {name = "Midhun M I", email = "midhunmi2011@gmail.com"},
 
 ]
-readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "chromadb==1.5.9",
