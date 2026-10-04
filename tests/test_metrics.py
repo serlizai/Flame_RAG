@@ -1,3 +1,5 @@
+"""验证检索指标计算及置信区间。"""
+
 import pytest
 
 from eval.metrics import (
@@ -43,7 +45,7 @@ def test_mean_reciprocal_rank_raises_on_empty_ranks():
 
 
 def test_recall_confidence_interval_matches_wilson_score_formula():
-    ranks = [1] * 15 + [None] * 3  # 15/18 hits
+    ranks = [1] * 15 + [None] * 3  # 18 个样本中命中 15 个
 
     lower, upper = recall_confidence_interval(ranks)
 

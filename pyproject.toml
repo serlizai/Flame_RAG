@@ -1,8 +1,7 @@
 [project]
-name = "lawglance"
+name = "flame"
 version = "0.1.0"
-description = "Your AI-Powered Legal Assistan"
-authors = [{name = "https://lawglance.com/" }]
+description = "A document-based AI assistant"
 maintainers = [
     {name = "Sreejith G", email = "gsreejith828@gmail.com"},
     {name = "Meenu Dev", email = "mee.dev03@gmail.com"},

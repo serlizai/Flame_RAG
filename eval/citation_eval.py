@@ -1,3 +1,5 @@
+"""评估回答的引用有效性、覆盖情况与标准块命中情况。"""
+
 import re
 from dataclasses import dataclass
 from typing import Callable
@@ -23,11 +25,10 @@ def run_citation_eval(
     golden_set: list[GoldenQAItem],
     answer_fn: Callable[[str], tuple[str, list[Citation]]],
 ) -> CitationEvalResults:
-    """Score answer_fn's citations against golden_set.
+    """用标准问答集评估 answer_fn 返回的引用。
 
-    citation_validity_rate is computed over emitted markers pooled across every
-    question, not averaged per-question, so a question with more markers weighs
-    proportionally more in the headline number.
+    citation_validity_rate 汇总所有问题的引用编号后计算，
+    并非逐题取平均；引用编号较多的问题对最终比例影响更大。
     """
     total_markers = 0
     valid_markers = 0

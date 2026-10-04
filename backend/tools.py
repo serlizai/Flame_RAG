@@ -1,16 +1,17 @@
-# Define vector store
-from backend.config import embeddings, vector_store
+"""定义从向量库检索文档的模型工具。"""
+
+# 导入用于检索的向量库
+from backend.config import vector_store
 from backend.citation import annotate_documents_for_citation, CITATION_MARKER_KEY
 from langchain.tools import tool
-from pathlib import Path
 
 
 @tool(response_format="content_and_artifact")
-def retrieve_docs(query:str):
-    """
-    This function retrieve relevant docs from the vector store based on similarity search.
-    Args:
-        query:str User question for a semantic search , it should not be a keyword search. should be a full sentence search
+def retrieve_docs(query: str):
+    """根据语义相似度从向量库检索相关文档，并返回带编号的文本和引用。
+
+    参数：
+        query：用于语义检索的完整用户问题，宜使用自然语言句子。
     """
 
     result = vector_store.similarity_search(query, k=5)
@@ -21,4 +22,3 @@ def retrieve_docs(query:str):
     )
 
     return content, citations
-

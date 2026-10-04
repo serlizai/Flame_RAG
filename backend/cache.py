@@ -1,55 +1,33 @@
+"""提供 Agent 后端使用的 Redis 缓存接口。"""
+
 import hashlib
 
 from cache import RedisCache as _SessionScopedRedisCache
+from cache import CACHE_KEY_PREFIX
 
 
 class RedisCache(_SessionScopedRedisCache):
-    """RedisCache variant for the agentic backend, keyed by query only.
+    """供 Agent 后端使用的 Redis 缓存，仅按问题文本生成缓存键。
 
-    Inherits connection handling, get/set, and chat-history access from
-    cache.RedisCache unchanged. Only make_cache_key differs: the agent's
-    tool-use loop makes the same question cacheable across sessions, so the
-    session_id is dropped from the key (unlike the base class, which scopes
-    the cache key to session_id + query).
+    继承 cache.RedisCache 的连接管理、读写和聊天历史接口。
+    make_cache_key 不包含 session_id，因此相同问题可以跨会话命中缓存。
+    基础类则按 session_id 与问题文本共同区分缓存。
 
-    Attributes:
-        redis_client (redis.Redis): Redis client instance connected to the specified Redis server.
+    属性：
+        redis_client：连接指定 Redis 服务的客户端。
 
-    Args:
-        redis_url (str): The connection URL for the Redis server (e.g., "redis://localhost:6379/0").
+    参数：
+        redis_url：Redis 连接地址，例如 redis://localhost:6379/0。
 
-    Methods:
-        make_cache_key(query: str) -> str:
-            Generates a unique SHA-256 cache key for a query, independent of session.
+    方法：
+        make_cache_key(query)：生成与会话无关的 SHA-256 缓存键。
+        get(key)：读取缓存，缺失时返回 None。
+        set(key, value, ttl)：写入缓存，可指定以秒计的过期时间。
+        get_chat_history(session_id)：通过 RedisChatMessageHistory 访问会话历史。
 
-        get(key: str) -> Optional[str]:
-            Retrieves a cached value from Redis for the given key.
-
-        set(key: str, value: str, ttl: Optional[int] = None) -> None:
-            Stores a value in Redis with an optional time-to-live (TTL) in seconds.
-
-        get_chat_history(session_id: str) -> RedisChatMessageHistory:
-            Returns a RedisChatMessageHistory object for the given session ID using LangChain's chat history utility.
-
-    Example:
-        >>> cache = RedisCache("redis://localhost:6379/0")
-        >>> key = cache.make_cache_key("What is AI?")
-        >>> cache.set(key, "AI stands for Artificial Intelligence.")
-        >>> print(cache.get(key))
-        "AI stands for Artificial Intelligence."
-
-        >>> chat_history = cache.get_chat_history("user123")
-        >>> chat_history.add_user_message("Hello!")
-        >>> messages = chat_history.messages
-        >>> print(messages[0].content)
-        "Hello!"
-
-    Notes:
-        - Keys are hashed for consistency and security using SHA-256.
-        - Cache key omits session_id, so the same question hits the cache
-          regardless of which session asked it.
-        - Relies on LangChain's RedisChatMessageHistory for managing ongoing conversation state.
+    说明：
+        聊天历史按会话保存；问答缓存按问题共享，两者的隔离范围不同。
     """
 
     def make_cache_key(self, query):
-        return "llm_cache_v2:" + hashlib.sha256(query.encode()).hexdigest()
+        return CACHE_KEY_PREFIX + hashlib.sha256(query.encode()).hexdigest()

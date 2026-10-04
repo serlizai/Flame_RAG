@@ -1,3 +1,5 @@
+"""验证引用评估指标对不同回答情况的处理。"""
+
 from citations import Citation
 from eval.citation_eval import run_citation_eval
 from eval.golden_set import GoldenQAItem
@@ -6,9 +8,9 @@ from eval.golden_set import GoldenQAItem
 def build_citation(number: int, snippet: str = "passage") -> Citation:
     return Citation(
         number=number,
-        label=f"Indian Constitution, PART {number}",
+        label=f"Product Guide, PART {number}",
         snippet=snippet,
-        source="https://example.gov/constitution.pdf",
+        source="https://example.com/product-guide.pdf",
     )
 
 
@@ -27,7 +29,7 @@ def test_scores_a_fully_valid_single_question_answer():
     golden_set = [GoldenQAItem(question="q1", chunk_text="correct chunk")]
 
     def fake_answer_fn(question: str) -> tuple[str, list[Citation]]:
-        return "Equality is protected [1].", [build_citation(1, "correct chunk")]
+        return "Backups are available [1].", [build_citation(1, "correct chunk")]
 
     results = run_citation_eval(golden_set, fake_answer_fn)
 
@@ -49,7 +51,7 @@ def test_does_not_count_an_answer_with_no_markers_toward_coverage():
 
 
 def test_an_answer_with_no_markers_does_not_affect_the_pooled_validity_rate():
-    """No markers means nothing was emitted to score, not a scored failure."""
+    """没有引用编号表示没有可计分的输出，不应按无效编号处理。"""
     golden_set = [
         GoldenQAItem(question="q1", chunk_text="chunk 1"),
         GoldenQAItem(question="q2", chunk_text="chunk 2"),
@@ -70,7 +72,7 @@ def test_a_marker_pointing_at_a_number_never_retrieved_is_invalid():
     golden_set = [GoldenQAItem(question="q1", chunk_text="correct chunk")]
 
     def fake_answer_fn(question: str) -> tuple[str, list[Citation]]:
-        return "Life is protected [7].", [build_citation(1, "correct chunk")]
+        return "Recovery is supported [7].", [build_citation(1, "correct chunk")]
 
     results = run_citation_eval(golden_set, fake_answer_fn)
 
@@ -98,12 +100,12 @@ def test_pools_citation_validity_across_questions_rather_than_averaging():
 
     def fake_answer_fn(question: str) -> tuple[str, list[Citation]]:
         if question == "q1":
-            # Both markers valid.
+            # 两个引用编号均有效。
             return "First [1] and second [2].", [
                 build_citation(1, "chunk 1"),
                 build_citation(2, "other"),
             ]
-        # One valid, one invalid.
+        # 一个编号有效，另一个编号不存在。
         return "Cited [1] and invented [9].", [build_citation(1, "chunk 2")]
 
     results = run_citation_eval(golden_set, fake_answer_fn)
@@ -113,7 +115,7 @@ def test_pools_citation_validity_across_questions_rather_than_averaging():
 
 
 def test_golden_chunk_citation_rate_matches_on_exact_chunk_text():
-    """Reuses GoldenQAItem.chunk_text verbatim, PR1's exact page_content convention."""
+    """直接比较 GoldenQAItem.chunk_text，沿用 page_content 完全一致的命中规则。"""
     golden_set = [GoldenQAItem(question="q1", chunk_text="the golden chunk")]
 
     def fake_answer_fn(question: str) -> tuple[str, list[Citation]]:
@@ -125,7 +127,7 @@ def test_golden_chunk_citation_rate_matches_on_exact_chunk_text():
 
 
 def test_golden_chunk_citation_rate_does_not_require_the_golden_chunk_be_cited():
-    """A retrieved-but-uncited golden chunk still counts, per the spec: any(...)."""
+    """按当前指标定义，检索到但未在正文引用的标准块仍计为命中。"""
     golden_set = [GoldenQAItem(question="q1", chunk_text="the golden chunk")]
 
     def fake_answer_fn(question: str) -> tuple[str, list[Citation]]:

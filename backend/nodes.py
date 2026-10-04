@@ -1,3 +1,5 @@
+"""实现语言模型调用、工具执行和最终回答节点。"""
+
 from dataclasses import asdict
 from langchain.messages import SystemMessage, ToolMessage, AIMessage, HumanMessage
 from backend.state import MessagesState
@@ -8,37 +10,32 @@ from backend.citation import resolve_answer_citations
 from backend.prompts import SYSTEM_PROMPT, QA_PROMPT
 
 
-# Define tools
-#--------------
+# 定义模型可调用的工具
+# --------------
 tools = [retrieve_docs]
 tools_by_name = {tool.name: tool for tool in tools}
 model_with_tools = model.bind_tools(tools)
 
-# LLM mode
-#---------
+
+# 语言模型调用节点
+# ---------
 def llm_call(state: dict):
-    """LLM decides whether to call a tool or not"""
+    """让语言模型根据当前消息决定是否调用工具。"""
 
     return {
         "messages": [
             model_with_tools.invoke(
-                [
-                    SystemMessage(
-                        content=SYSTEM_PROMPT
-                    )
-                ]
-                + state["messages"]
+                [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
             )
         ],
-        "llm_calls": state.get('llm_calls', 0) + 1
+        "llm_calls": state.get("llm_calls", 0) + 1,
     }
 
 
-
-# Tool Node
-#-----------
+# 工具执行节点
+# -----------
 def tool_node(state: dict):
-    """Performs the tool call"""
+    """执行模型发出的工具调用，并收集工具结果与引用。"""
 
     result = []
     new_citations = []
@@ -50,11 +47,13 @@ def tool_node(state: dict):
             new_citations.extend(tool_message.artifact)
     return {"messages": result, "citations": new_citations}
 
-# Final answer Node
-#------------------
+
+# 最终回答节点
+# ------------------
+
 
 def final_answer(state: dict):
-    """Produce final answer once tool loop is done, with deterministic citations"""
+    """工具循环结束后生成最终回答，并校验和整理引用编号。"""
 
     messages = state["messages"]
 
@@ -72,7 +71,9 @@ def final_answer(state: dict):
     )
     sources = "\n".join(f"[{c.number}] {c.label}" for c in kept_citations)
     content = (
-        f"{resolved_answer}\n\nSources:\n{sources}" if kept_citations else resolved_answer
+        f"{resolved_answer}\n\nSources:\n{sources}"
+        if kept_citations
+        else resolved_answer
     )
 
     return {
@@ -85,16 +86,13 @@ def final_answer(state: dict):
     }
 
 
-
-
-
 def should_continue(state: MessagesState) -> Literal["tool_node", "final_answer"]:
-    """Decide if we should continue the loop or stop based upon whether the LLM made a tool call"""
+    """根据最后一条模型消息是否包含工具调用，选择工具节点或最终回答节点。"""
 
     messages = state["messages"]
     last_message = messages[-1]
 
-    # If the LLM makes a tool call, then perform an action
+    # 模型发出工具调用时，继续进入工具执行节点
     if last_message.tool_calls:
         return "tool_node"
 

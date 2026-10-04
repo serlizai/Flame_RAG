@@ -1,4 +1,4 @@
-# Python caches and test artifacts
+# Python 缓存和测试产物
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -9,32 +9,35 @@ __pycache__/
 htmlcov/
 .ipynb_checkpoints/
 
-# Virtual environments
+# 本地虚拟环境
 .venv/
 venv/
 env/
 
-# Local credentials and configuration
+# 本地凭据和配置；保留不含密钥的示例文件
 .env
 .env.*
 !.env.example
 !.env.*.example
 .streamlit/secrets.toml
 
-# Local vector databases, downloaded data, and model weights
+# 本地向量库、下载数据与模型权重；商品 Markdown 可纳入版本控制
 /chroma_db*/
-/data/
+/data/*
+!/data/products/
+/data/products/*
+!/data/products/*.md
 /models/
 /.cache/
 
-# Build artifacts and logs
+# 构建产物和运行日志
 build/
 dist/
 *.egg-info/
 *.log
 /logs/
 
-# Operating system and editor files
+# 操作系统与编辑器生成的文件
 .DS_Store
 ._*
 .idea/

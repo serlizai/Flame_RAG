@@ -1,3 +1,5 @@
+"""验证引用标签、编号、回答清理和缓存载荷。"""
+
 import json
 import pytest
 from langchain_core.documents import Document
@@ -18,36 +20,35 @@ from citations import (
 def build_citation(number: int) -> Citation:
     return Citation(
         number=number,
-        label=f"Indian Constitution, PART {number}",
+        label=f"Product Guide, PART {number}",
         snippet=f"passage {number}",
-        source="https://example.gov/constitution.pdf",
+        source="https://example.com/product-guide.pdf",
     )
 
 
 def build_part_document(
-    page_content: str = "Article 21. Protection of life...",
+    page_content: str = "Section 1. Product setup...",
 ) -> Document:
-    """A chunk shaped like the 741 Part-level Constitution chunks."""
+    """构造带文档标题和分部 metadata 的文本块。"""
     return Document(
         page_content=page_content,
         metadata={
-            "source": "https://example.gov/constitution.pdf",
-            "source_name": "Indian Constitution",
-            "country": "India",
-            "db_owner": "LawGlance",
+            "source": "https://example.com/product-guide.pdf",
+            "source_name": "Product Guide",
+            "db_owner": "Flame",
             "part": "PART III",
-            "part_name": "Fundamental Rights",
+            "part_name": "Setup",
         },
     )
 
 
 def build_greeting_document(page_content: str = "Hello") -> Document:
-    """A chunk shaped like the 27 small-talk chunks, which carry no legal identity."""
+    """构造不带文档标题的问候文本块。"""
     return Document(
         page_content=page_content,
         metadata={
             "source": "english greeting words",
-            "db_owner": "LawGlance",
+            "db_owner": "Flame",
             "language": "English",
         },
     )
@@ -55,45 +56,46 @@ def build_greeting_document(page_content: str = "Hello") -> Document:
 
 def test_pairs_a_locator_with_its_name_sibling():
     metadata = {
-        "source_name": "Indian Constitution",
-        "country": "India",
-        "db_owner": "LawGlance",
+        "source_name": "Product Guide",
+        "db_owner": "Flame",
         "part": "PART III",
-        "part_name": "Fundamental Rights",
+        "part_name": "Setup",
     }
 
-    assert format_citation_label(metadata) == (
-        "Indian Constitution, PART III (Fundamental Rights)"
-    )
+    assert format_citation_label(metadata) == ("Product Guide, PART III (Setup)")
 
 
-def test_labels_a_schedule_chunk_without_a_name_sibling():
+def test_labels_a_pdf_page_without_a_name_sibling():
     metadata = {
-        "source_name": "Indian Constitution",
-        "country": "India",
-        "db_owner": "LawGlance",
-        "schedule": "schedule 1",
+        "source_name": "Product Guide",
+        "db_owner": "Flame",
+        "page": 0,
     }
 
-    assert format_citation_label(metadata) == "Indian Constitution, schedule 1"
+    assert format_citation_label(metadata) == "Product Guide, page 1"
 
 
-def test_labels_the_preamble_chunk():
+def test_labels_a_chapter_chunk():
     metadata = {
-        "source_name": "Indian Constitution",
-        "country": "India",
-        "db_owner": "LawGlance",
-        "preamble": "preamble",
+        "source_name": "Product Guide",
+        "db_owner": "Flame",
+        "chapter": "Introduction",
     }
 
-    assert format_citation_label(metadata) == "Indian Constitution, preamble"
+    assert format_citation_label(metadata) == "Product Guide, Introduction"
+
+
+def test_prefers_a_pdf_page_label_over_its_zero_based_page_index():
+    metadata = {"title": "Product Guide", "page_label": "iv", "page": 3}
+
+    assert format_citation_label(metadata) == "Product Guide, page iv"
 
 
 def test_suppresses_chunks_carrying_no_identifying_metadata():
-    """Small-talk chunks have only source/db_owner/language and are not citable."""
+    """仅有 source、db_owner 和 language 的问候块不能构造有效引用。"""
     metadata = {
         "source": "english greeting words",
-        "db_owner": "LawGlance",
+        "db_owner": "Flame",
         "language": "English",
     }
 
@@ -105,69 +107,69 @@ def test_suppresses_an_empty_metadata_dict():
 
 
 def test_falls_back_to_a_bare_title_when_no_locator_is_present():
-    metadata = {"source_name": "Indian Constitution", "db_owner": "LawGlance"}
+    metadata = {"source_name": "Product Guide", "db_owner": "Flame"}
 
-    assert format_citation_label(metadata) == "Indian Constitution"
+    assert format_citation_label(metadata) == "Product Guide"
 
 
 def test_suppresses_a_locator_that_has_no_title_to_anchor_it():
-    """A bare "PART III" names no document, so it cannot be verified."""
-    metadata = {"part": "PART III", "db_owner": "LawGlance"}
+    """只有 PART III 等位置标记无法识别具体文档，因此不能引用。"""
+    metadata = {"part": "PART III", "db_owner": "Flame"}
 
     assert format_citation_label(metadata) is None
 
 
 def test_never_treats_the_source_field_as_a_title():
-    """`source` is a raw URL or an ingestion note, not a citable document name."""
+    """source 保存原始链接或来源说明，不将其当作文档名称。"""
     metadata = {
-        "source": "https://example.gov/constitution.pdf",
-        "db_owner": "LawGlance",
+        "source": "https://example.com/product-guide.pdf",
+        "db_owner": "Flame",
     }
 
     assert format_citation_label(metadata) is None
 
 
 def test_generalises_to_a_corpus_with_its_own_schema():
-    """A user-ingested act with section metadata needs no code change."""
+    """用户文档可以通过 document_title 和 section 字段生成引用。"""
     metadata = {
-        "act": "Bharatiya Nyaya Sanhita",
-        "section": "Section 103",
-        "section_name": "Punishment for murder",
+        "document_title": "Service Manual",
+        "section": "Section 2",
+        "section_name": "Troubleshooting",
     }
 
     assert format_citation_label(metadata) == (
-        "Bharatiya Nyaya Sanhita, Section 103 (Punishment for murder)"
+        "Service Manual, Section 2 (Troubleshooting)"
     )
 
 
 def test_prefers_the_most_specific_locator_when_several_are_present():
     metadata = {
-        "source_name": "Indian Constitution",
-        "article": "Article 21",
+        "source_name": "Product Guide",
+        "section": "Section 1",
         "part": "PART III",
     }
 
-    assert format_citation_label(metadata) == "Indian Constitution, Article 21"
+    assert format_citation_label(metadata) == "Product Guide, Section 1"
 
 
 @pytest.mark.parametrize(
     "metadata, expected",
     [
         (
-            {"source_name": "Indian Constitution", "part": "PART  V"},
-            "Indian Constitution, PART V",
+            {"source_name": "Product Guide", "part": "PART  V"},
+            "Product Guide, PART V",
         ),
         (
             {
-                "source_name": "Indian Constitution",
+                "source_name": "Product Guide",
                 "part": "PART IV-A",
-                "part_name": "Fundamental Duties ",
+                "part_name": "Maintenance ",
             },
-            "Indian Constitution, PART IV-A (Fundamental Duties)",
+            "Product Guide, PART IV-A (Maintenance)",
         ),
         (
-            {"source_name": "  Indian   Constitution  "},
-            "Indian Constitution",
+            {"source_name": "  Product   Guide  "},
+            "Product Guide",
         ),
     ],
 )
@@ -176,30 +178,30 @@ def test_normalises_inconsistent_whitespace(metadata, expected):
 
 
 def test_preserves_roman_numeral_casing():
-    """Titlecasing would turn PART III into "Part Iii"."""
-    metadata = {"source_name": "Indian Constitution", "part": "PART XVII"}
+    """应保留罗马数字大小写，避免把 PART III 转换成 Part Iii。"""
+    metadata = {"source_name": "Product Guide", "part": "PART XVII"}
 
-    assert format_citation_label(metadata) == "Indian Constitution, PART XVII"
+    assert format_citation_label(metadata) == "Product Guide, PART XVII"
 
 
 @pytest.mark.parametrize("empty_value", ["", "   ", None])
 def test_treats_empty_values_as_absent_keys(empty_value):
-    metadata = {"source_name": "Indian Constitution", "part": empty_value}
+    metadata = {"source_name": "Product Guide", "part": empty_value}
 
-    assert format_citation_label(metadata) == "Indian Constitution"
+    assert format_citation_label(metadata) == "Product Guide"
 
 
 def test_ignores_a_name_sibling_whose_locator_is_absent():
-    metadata = {"source_name": "Indian Constitution", "part_name": "Fundamental Rights"}
+    metadata = {"source_name": "Product Guide", "part_name": "Setup"}
 
-    assert format_citation_label(metadata) == "Indian Constitution"
+    assert format_citation_label(metadata) == "Product Guide"
 
 
 def test_coerces_non_string_metadata_values():
-    """Chroma permits int metadata; a label must not crash on one."""
-    metadata = {"source_name": "Indian Constitution", "chapter": 4}
+    """Chroma 允许整数 metadata，标签生成也必须能处理这类值。"""
+    metadata = {"source_name": "Product Guide", "chapter": 4}
 
-    assert format_citation_label(metadata) == "Indian Constitution, 4"
+    assert format_citation_label(metadata) == "Product Guide, 4"
 
 
 def test_numbers_citable_documents_from_one():
@@ -214,12 +216,12 @@ def test_embeds_the_number_and_label_in_the_marker():
     annotated, _ = annotate_documents_for_citation([build_part_document()])
 
     assert annotated[0].metadata[CITATION_MARKER_KEY] == (
-        "[1] Indian Constitution, PART III (Fundamental Rights)"
+        "[1] Product Guide, PART III (Setup)"
     )
 
 
 def test_gives_uncitable_documents_an_empty_marker_rather_than_omitting_the_key():
-    """Every document needs the key, or the document_prompt raises on the missing one."""
+    """每个文档都必须包含标记键，避免 document_prompt 因键缺失报错。"""
     annotated, _ = annotate_documents_for_citation([build_greeting_document()])
 
     assert annotated[0].metadata[CITATION_MARKER_KEY] == ""
@@ -236,9 +238,9 @@ def test_excludes_uncitable_documents_from_the_citation_list():
 def test_numbers_citable_documents_contiguously_across_suppressed_ones():
     documents = [
         build_greeting_document("Hello"),
-        build_part_document("first legal chunk"),
+        build_part_document("first document chunk"),
         build_greeting_document("Hi"),
-        build_part_document("second legal chunk"),
+        build_part_document("second document chunk"),
     ]
 
     annotated, citations = annotate_documents_for_citation(documents)
@@ -251,9 +253,7 @@ def test_numbers_citable_documents_contiguously_across_suppressed_ones():
 
 
 def test_carries_the_verbatim_passage_as_the_snippet():
-    passage = (
-        "Article 21. No person shall be deprived of his life or personal liberty..."
-    )
+    passage = "Section 1. Connect the power supply before starting the device..."
 
     _, citations = annotate_documents_for_citation([build_part_document(passage)])
 
@@ -263,12 +263,12 @@ def test_carries_the_verbatim_passage_as_the_snippet():
 def test_carries_the_source_for_linking():
     _, citations = annotate_documents_for_citation([build_part_document()])
 
-    assert citations[0].source == "https://example.gov/constitution.pdf"
+    assert citations[0].source == "https://example.com/product-guide.pdf"
 
 
 def test_leaves_page_content_untouched():
-    """PR1's eval matches chunks by exact page_content, so it must not drift."""
-    passage = "Article 21. Protection of life and personal liberty."
+    """评估按 page_content 完全一致判定命中，标注不能修改原文。"""
+    passage = "Section 1. Connect the power supply before starting the device."
 
     annotated, _ = annotate_documents_for_citation([build_part_document(passage)])
 
@@ -291,11 +291,10 @@ def test_handles_an_empty_retrieval():
 
 
 def test_annotated_documents_never_raise_in_the_document_prompt():
-    """Regression: format_document raises ValueError on any metadata key it cannot find.
+    """回归检查：format_document 遇到缺失的 metadata 键会抛出 ValueError。
 
-    The greeting chunks lack source_name entirely, so a template referencing real
-    metadata keys would crash on them. Precomputing one marker onto every document
-    is what makes the template variable always resolvable.
+    问候文本不含 source_name，直接引用原始字段的模板会失败。
+    为每个文档预先计算 citation_marker，可以保证模板变量始终存在。
     """
     document_prompt = PromptTemplate.from_template(
         "{" + CITATION_MARKER_KEY + "}\n{page_content}"
@@ -306,12 +305,12 @@ def test_annotated_documents_never_raise_in_the_document_prompt():
 
     rendered = [format_document(doc, document_prompt) for doc in annotated]
 
-    assert rendered[0].startswith("[1] Indian Constitution")
+    assert rendered[0].startswith("[1] Product Guide")
     assert rendered[1] == "\nHello"
 
 
 def test_a_naive_document_prompt_would_raise_on_greeting_chunks():
-    """Pins down why the marker is precomputed rather than templated from metadata."""
+    """验证为何应预先计算引用标记，而不是让模板直接读取原始 metadata。"""
     naive_prompt = PromptTemplate.from_template("[{source_name}] {page_content}")
 
     with pytest.raises(ValueError, match="source_name"):
@@ -321,18 +320,18 @@ def test_a_naive_document_prompt_would_raise_on_greeting_chunks():
 def test_keeps_markers_backed_by_a_retrieved_chunk():
     citations = [build_citation(1), build_citation(2)]
 
-    answer, _ = resolve_answer_citations("Equality is protected [1].", citations)
+    answer, _ = resolve_answer_citations("Backups are available [1].", citations)
 
-    assert answer == "Equality is protected [1]."
+    assert answer == "Backups are available [1]."
 
 
 def test_strips_a_marker_no_retrieved_chunk_supports():
-    """The model can invent [7] when only three chunks were numbered."""
+    """只有三个检索块时，模型仍可能编造不存在的编号，例如 [7]。"""
     citations = [build_citation(1)]
 
-    answer, _ = resolve_answer_citations("Life is protected [7].", citations)
+    answer, _ = resolve_answer_citations("Recovery is supported [7].", citations)
 
-    assert answer == "Life is protected."
+    assert answer == "Recovery is supported."
 
 
 def test_drops_citations_the_answer_never_used():
@@ -344,7 +343,7 @@ def test_drops_citations_the_answer_never_used():
 
 
 def test_keeps_original_numbers_so_markers_still_resolve():
-    """Renumbering would break the [n] already written into the answer text."""
+    """重新编号会破坏回答中已有的 [n] 标记与引用的对应关系。"""
     citations = [build_citation(1), build_citation(2), build_citation(3)]
 
     answer, kept = resolve_answer_citations("Cites the third [3].", citations)
@@ -372,12 +371,12 @@ def test_handles_multi_digit_markers():
 
 
 def test_leaves_non_numeric_brackets_alone():
-    """Legal quotations contain bracketed text that is not a citation marker."""
+    """原文中可能出现非数字方括号，这些内容不应被当作引用编号。"""
     citations = [build_citation(1)]
 
-    answer, _ = resolve_answer_citations("The Act [sic] applies [1].", citations)
+    answer, _ = resolve_answer_citations("The manual [sic] applies [1].", citations)
 
-    assert answer == "The Act [sic] applies [1]."
+    assert answer == "The manual [sic] applies [1]."
 
 
 def test_deduplicates_a_chunk_cited_more_than_once():
@@ -420,12 +419,12 @@ def test_strips_a_trailing_marker_without_leaving_whitespace():
 
 def test_round_trips_an_answer_through_the_cache_payload():
     payload = citations_to_cache_payload(
-        "Equality is protected [1].", [build_citation(1)]
+        "Backups are available [1].", [build_citation(1)]
     )
 
     answer, _ = cache_payload_to_result(payload)
 
-    assert answer == "Equality is protected [1]."
+    assert answer == "Backups are available [1]."
 
 
 def test_round_trips_every_citation_field():
@@ -445,7 +444,7 @@ def test_round_trips_an_answer_with_no_citations():
 
 
 def test_round_trips_a_citation_without_a_source():
-    original = Citation(number=1, label="Some Act", snippet="text", source=None)
+    original = Citation(number=1, label="Some Document", snippet="text", source=None)
 
     _, restored = cache_payload_to_result(
         citations_to_cache_payload("a [1].", [original])
@@ -454,12 +453,10 @@ def test_round_trips_a_citation_without_a_source():
     assert restored[0].source is None
 
 
-def test_round_trips_legal_text_containing_newlines_and_unicode():
-    """Constitution passages carry footnote markers and hard line breaks."""
-    snippet = "PART III\nArticle 21. — No person shall be deprived…"
-    original = Citation(
-        number=1, label="Indian Constitution", snippet=snippet, source=None
-    )
+def test_round_trips_document_text_containing_newlines_and_unicode():
+    """文档片段可能包含脚注标记、硬换行和 Unicode 字符。"""
+    snippet = "PART III\nSection 1. — Connect the power supply…"
+    original = Citation(number=1, label="Product Guide", snippet=snippet, source=None)
 
     _, restored = cache_payload_to_result(
         citations_to_cache_payload("a [1].", [original])
@@ -469,7 +466,7 @@ def test_round_trips_legal_text_containing_newlines_and_unicode():
 
 
 def test_writes_an_inspectable_json_payload():
-    """Cached values should be readable with redis-cli when debugging."""
+    """缓存载荷应能通过 redis-cli 直接查看，便于排查问题。"""
     payload = citations_to_cache_payload("answer [1].", [build_citation(1)])
 
     assert json.loads(payload)["answer"] == "answer [1]."

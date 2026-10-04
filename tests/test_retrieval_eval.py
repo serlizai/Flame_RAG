@@ -1,3 +1,5 @@
+"""验证检索评估按原始文本匹配目标块。"""
+
 import pytest
 from langchain_core.documents import Document
 

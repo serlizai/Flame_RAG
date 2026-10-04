@@ -1,4 +1,5 @@
-import os
+"""构建真实检索器并计算标准问答集上的检索指标。"""
+
 from dataclasses import dataclass
 from typing import Callable
 
@@ -6,7 +7,8 @@ from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_core.vectorstores import VectorStoreRetriever
-from langchain_openai import OpenAIEmbeddings
+
+from backend.embeddings import create_embeddings
 
 from eval.chunk_sampling import CHROMA_PERSIST_DIRECTORY
 from eval.golden_set import GoldenQAItem
@@ -19,7 +21,7 @@ from eval.metrics import (
 
 load_dotenv(".env.local")
 
-# Must match chains.py's get_rag_chain retriever config exactly — PR1 measures this config, not a different one.
+# 与 chains.py 中经典 RAG 检索器的配置保持一致。
 RETRIEVER_SEARCH_TYPE = "similarity_score_threshold"
 RETRIEVER_SEARCH_KWARGS = {"k": 10, "score_threshold": 0.3}
 
@@ -35,8 +37,8 @@ class EvalResults:
 def build_real_retriever(
     persist_directory: str = CHROMA_PERSIST_DIRECTORY,
 ) -> VectorStoreRetriever:
-    """Real Chroma-backed retriever; not unit tested, validated by a manual run."""
-    embeddings = OpenAIEmbeddings(openai_api_key=os.getenv("OPENAI_API_KEY"))
+    """使用共享的本地 embedding 模型创建 Chroma 检索器。"""
+    embeddings = create_embeddings()
     vector_store = Chroma(
         persist_directory=persist_directory, embedding_function=embeddings
     )
@@ -49,7 +51,7 @@ def run_retrieval_eval(
     golden_set: list[GoldenQAItem],
     retrieve_fn: Callable[[str], list[Document]],
 ) -> EvalResults:
-    """Score retrieve_fn against golden_set, matching on exact page_content."""
+    """用标准问答集评估检索函数，按 page_content 完全一致判定命中。"""
     ranks = [
         rank_of_correct_chunk(
             [doc.page_content for doc in retrieve_fn(item.question)],

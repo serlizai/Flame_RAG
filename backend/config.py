@@ -1,38 +1,25 @@
+"""初始化聊天模型、文本向量模型、向量库、Redis 缓存和图检查点。"""
+
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_openai import OpenAIEmbeddings
 from langchain.chat_models import init_chat_model
 from langgraph.checkpoint.memory import MemorySaver
-from dotenv import load_dotenv
-from pathlib import Path
 import os
 
 from backend.cache import RedisCache
+from backend.embeddings import create_embeddings
+from settings import CHROMA_PERSIST_DIRECTORY
 
-DATA = Path(__file__).resolve().parent.parent
-
-load_dotenv()
-
-# model = init_chat_model("openai:gpt-5.5", temperature=0)
+# 模型配置示例：model = init_chat_model("openai:gpt-5.5", temperature=0)
 model = init_chat_model(
     model="qwen3.8-27b",
     model_provider="openai",
     api_key=os.getenv("OPENAI_API_KEY"),
-    base_url=os.getenv("OPENAI_BASE_URL")
+    base_url=os.getenv("OPENAI_BASE_URL"),
 )
-# embeddings = OpenAIEmbeddings()
-embeddings = HuggingFaceEmbeddings(
-    model_name=os.getenv("BGE_M3_PATH"),
-    model_kwargs={
-        "device": "mps" or "cpu"
-    },
-    encode_kwargs={
-        "normalize_embeddings": True
-    },
-)
+embeddings = create_embeddings()
 vector_store = Chroma(
     embedding_function=embeddings,
-    persist_directory=str(DATA / "chroma_db_bge"),
+    persist_directory=CHROMA_PERSIST_DIRECTORY,
 )
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")

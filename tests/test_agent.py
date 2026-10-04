@@ -1,14 +1,21 @@
-from backend.retrieval import agent_invoke
+"""需要真实模型、已建语料库和 Redis 的可选链路冒烟测试。"""
 
-answer, citations, session_id = agent_invoke(
-    "What does Article 21 of the Indian Constitution say?"
+import os
+
+import pytest
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_AGENT_INTEGRATION") != "1",
+    reason="Set RUN_AGENT_INTEGRATION=1 to run the configured backend smoke test.",
 )
+def test_agent_answers_a_document_question():
+    from backend.retrieval import agent_invoke
 
-print("回答：")
-print(answer)
+    answer, citations, session_id = agent_invoke(
+        "What information is available in the indexed documents?"
+    )
 
-print("\n引用：")
-print(citations)
-
-print("\nsession_id：")
-print(session_id)
+    assert isinstance(answer, str) and answer
+    assert isinstance(citations, list)
+    assert isinstance(session_id, str) and session_id

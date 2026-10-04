@@ -1,3 +1,5 @@
+"""验证标准问答集的字段校验和读写。"""
+
 import json
 
 import pytest
@@ -12,8 +14,8 @@ def test_loads_valid_items(tmp_path):
         json.dumps(
             [
                 {
-                    "question": "What does Article 1 of the Constitution declare India to be?",
-                    "chunk_text": "India, that is Bharat, shall be a Union of States.",
+                    "question": "What does Flame use to retrieve documents?",
+                    "chunk_text": "Flame uses a vector database to retrieve documents.",
                 }
             ]
         )
@@ -22,16 +24,13 @@ def test_loads_valid_items(tmp_path):
     items = load_golden_qa_set(path)
 
     assert len(items) == 1
-    assert (
-        items[0].question
-        == "What does Article 1 of the Constitution declare India to be?"
-    )
-    assert items[0].chunk_text == "India, that is Bharat, shall be a Union of States."
+    assert items[0].question == "What does Flame use to retrieve documents?"
+    assert items[0].chunk_text == "Flame uses a vector database to retrieve documents."
 
 
 def test_raises_on_item_missing_required_field(tmp_path):
     path = tmp_path / "golden_qa.json"
-    path.write_text(json.dumps([{"question": "What does Article 1 declare?"}]))
+    path.write_text(json.dumps([{"question": "What does Flame use?"}]))
 
     with pytest.raises(ValidationError):
         load_golden_qa_set(path)
@@ -41,7 +40,7 @@ def test_save_then_load_round_trips(tmp_path):
     path = tmp_path / "candidates.json"
     items = [
         GoldenQAItem(
-            question="What does Article 1 declare?", chunk_text="India, that is Bharat."
+            question="What does Flame use?", chunk_text="Flame uses a vector database."
         )
     ]
 

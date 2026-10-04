@@ -1,18 +1,26 @@
+"""构建支持历史问题改写和引用标注的经典 RAG 链路。"""
+
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
-from langchain_classic.chains import create_retrieval_chain, create_history_aware_retriever
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
+from langchain_classic.chains import (
+    create_retrieval_chain,
+    create_history_aware_retriever,
+)
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    MessagesPlaceholder,
+    PromptTemplate,
+)
 from langchain_core.runnables import RunnableLambda
 
 from citations import annotate_documents_for_citation
 
 
 def _annotate_only(documents):
-    """Adapt annotate_documents_for_citation to the retriever step, which must
-    return a bare document list (it becomes response['context']). The discarded
-    Citation list is reconstructed downstream by calling
-    annotate_documents_for_citation again on that same context: it is a pure
-    function of document metadata, so the numbering it recomputes is identical
-    to the numbering baked into citation_marker here."""
+    """把引用标注函数适配为仅返回文档列表的检索步骤。
+
+    返回值作为 response['context']。下游基于同一组文档 metadata
+    重新构造 Citation 列表，因此引用编号与此处写入的 citation_marker 一致。
+    """
     annotated, _ = annotate_documents_for_citation(documents)
     return annotated
 

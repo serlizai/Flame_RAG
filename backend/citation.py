@@ -1,8 +1,7 @@
-"""Citation labelling and numbering for retrieval-grounded answers.
+"""为基于检索结果的回答提供引用标签和编号。
 
-The agentic backend shares the same citation model as the original
-Lawglance pipeline, so this module re-exports the canonical implementation
-from the top-level `citations` module instead of duplicating it.
+Agent 后端与经典 RAG 链路共用同一套引用模型。
+本模块重新导出顶层 citations 模块的实现，避免重复维护。
 """
 
 from citations import (

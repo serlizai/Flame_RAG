@@ -1947,7 +1947,7 @@ wheels = [
 ]
 
 [[package]]
-name = "lawglance"
+name = "flame"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

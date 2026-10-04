@@ -1,23 +1,25 @@
+"""验证文本完整性筛选与候选块抽样。"""
+
 import pytest
 
 from eval.chunk_sampling import looks_self_contained, sample_clean_chunks
 
 CLEAN_CHUNK = (
-    "Parliament may by law admit into the Union any new State, and may by law "
-    "establish new States, provided that any such law shall not take effect "
-    "unless it has been passed by both Houses of Parliament and duly assented "
-    "to by the President in accordance with the provisions of this Constitution."
+    "The document index stores searchable passages alongside their source metadata. "
+    "When a user asks a question, the retriever selects relevant passages and sends "
+    "them to the assistant, which produces an answer with numbered citations so "
+    "the user can inspect the original supporting documents."
 )
 
 
 def test_flags_chunk_starting_mid_sentence_as_not_self_contained():
-    chunk = "boundaries or names of existing States.—Parliament may by law—"
+    chunk = "and the remaining document passages are indexed by—"
 
     assert looks_self_contained(chunk) is False
 
 
 def test_flags_chunk_ending_mid_word_as_not_self_contained():
-    chunk = "State or by uniting two or more States or parts of States or by"
+    chunk = "Documents are split into overlapping chunks and stored with"
 
     assert looks_self_contained(chunk) is False
 
@@ -33,7 +35,7 @@ def test_flags_short_greeting_as_not_self_contained():
 def test_sample_clean_chunks_excludes_fragments():
     chunks = [
         CLEAN_CHUNK,
-        "boundaries or names of existing States.—Parliament may by law—",
+        "and the remaining document passages are indexed by—",
     ]
 
     sampled = sample_clean_chunks(chunks, n=1, seed=0)

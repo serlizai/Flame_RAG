@@ -1,7 +1,7 @@
-import os
+"""提供 Flame 的 Streamlit 聊天界面。"""
+
 import streamlit as st
 import time
-import base64
 import uuid
 from dotenv import load_dotenv
 
@@ -9,14 +9,14 @@ from backend.retrieval import agent_invoke
 from backend.config import cache as backend_cache
 from langchain_core.messages import HumanMessage
 
-# Set page configuration
-st.set_page_config(page_title="LawGlance", page_icon="logo/logo.png", layout="wide")
+# 设置页面标题、图标和布局
+st.set_page_config(page_title="Flame", page_icon="🔥", layout="wide")
 
-# Load environment variables
+# 加载环境变量
 load_dotenv()
 
 
-# Custom CSS for UI
+# 为界面添加自定义样式
 def add_custom_css():
     custom_css = """
     <style>
@@ -50,12 +50,6 @@ def add_custom_css():
             display: flex; gap: 10px;
         }
         .chat-input { flex-grow: 1; }
-        .st-title {
-            font-family: 'Arial', sans-serif; font-weight: bold;
-            color: #333; display: flex; align-items: center;
-            gap: 15px; margin-top: 20px; margin-bottom: 20px;
-        }
-        .logo { width: 40px; height: 30px; }
         .st-sidebar {
             background-color: #f9f9f9; padding: 20px;
         }
@@ -82,51 +76,27 @@ def render_citations(citations):
     if citations:
         st.caption(
             "Bracketed citations are verified against retrieved passages; "
-            "article numbers mentioned in the answer text are not."
+            "other references mentioned in the answer text are not."
         )
 
 
-# Title with Logo
-logo_path = "logo/logo.png"
-if os.path.exists(logo_path):
-    with open(logo_path, "rb") as image_file:
-        encoded_image = base64.b64encode(image_file.read()).decode()
-    st.markdown(
-        f"""
-    <div class="st-title">
-        <img src="data:image/png;base64,{encoded_image}" alt="LawGlance Logo" class="logo">
-        <span>LawGlance - An AI Legal Assistant </span>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
-else:
-    st.markdown(
-        """
-    <div class="st-title">
-        <span>LawGlance - Your Legal Assistant 📖</span>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
+st.title("Flame 🔥")
 
-# Sidebar Info
-st.sidebar.header("About LawGlance")
+# 展示侧边栏项目信息
+st.sidebar.header("About Flame")
 st.sidebar.markdown("""
-**LawGlance** is a free, open-source AI legal assistant that helps answer legal questions.
-
-Visit our website: [LawGlance](https://lawglance.com)
+**Flame** is an open-source AI assistant that answers questions using your documents.
 
 _Disclaimer_: This tool is in its pilot phase, and responses may not be 100% accurate.
 """)
 
-# Persistent session ID
+# 在界面会话中保留同一个会话编号
 if "thread_id" not in st.session_state:
     st.session_state.thread_id = str(uuid.uuid4())
 
 thread_id = st.session_state.thread_id
 
-# Get chat history from backend and display
+# 从后端获取聊天历史并转换为界面消息
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -135,16 +105,16 @@ if "messages" not in st.session_state:
         role = "user" if isinstance(msg, HumanMessage) else "assistant"
         st.session_state.messages.append({"role": role, "content": msg.content})
 
-# Display history
+# 展示已有聊天记录
 for message in st.session_state.messages:
     role = "user" if message["role"] == "user" else "assistant"
     with st.chat_message(role):
         st.markdown(message["content"])
         render_citations(message.get("citations", []))
 
-# Prompt input
+# 接收用户输入的问题
 st.markdown("<div class='chat-input-container'>", unsafe_allow_html=True)
-prompt = st.chat_input("Have a legal question? Let’s work through it.")
+prompt = st.chat_input("Ask a question about your documents.")
 st.markdown("</div>", unsafe_allow_html=True)
 
 if prompt and prompt.strip():
@@ -152,10 +122,10 @@ if prompt and prompt.strip():
         st.markdown(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
 
-    # Invoke the agentic backend
+    # 调用 Agent 后端处理问题
     result, citations, thread_id = agent_invoke(prompt, session_id=thread_id)
 
-    # Rebuild session messages from updated Redis chat
+    # 根据更新后的 Redis 聊天历史重建界面消息
     updated_history = backend_cache.get_chat_history(thread_id).messages
     st.session_state.messages = []
     for msg in updated_history:
@@ -164,8 +134,8 @@ if prompt and prompt.strip():
     if st.session_state.messages and st.session_state.messages[-1]["content"] == result:
         st.session_state.messages[-1]["citations"] = citations
 
-    # Animate AI response
-    final_response = f"AI Legal Assistant: {result}"
+    # 逐词展示模型回答
+    final_response = f"Flame: {result}"
 
     def response_generator(response):
         for word in response.split():

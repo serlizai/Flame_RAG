@@ -1,8 +1,7 @@
-"""Citation labelling and numbering for retrieval-grounded answers.
+"""为检索回答生成引用标签、编号和缓存载荷。
 
-Labels are built from whatever metadata keys a retrieved chunk happens to carry, so
-the module works against any ingested corpus rather than the seeded Constitution
-schema. Chunks with no identifying metadata are not citable.
+标签使用文档标题与位置 metadata，可用于不同语料。
+缺少可识别身份信息的文本块不会生成引用。
 """
 
 import json
@@ -12,22 +11,18 @@ from typing import Any, Mapping
 
 from langchain_core.documents import Document
 
-# An optional leading space is consumed so stripping an unsupported marker does not
-# leave a doubled space behind.
+# 正则同时匹配引用编号前的一个可选空格，
+# 避免移除无依据的标记后留下连续空格。
 _MARKER_PATTERN = re.compile(r" ?\[(\d+)\]")
 
-TITLE_KEYS = ("source_name", "title", "document_title", "act", "statute", "law")
+TITLE_KEYS = ("product_name", "source_name", "title", "document_title")
 
 LOCATOR_KEYS = (
-    "article",
     "section",
-    "clause",
-    "rule",
-    "regulation",
+    "page_label",
+    "page",
     "part",
     "chapter",
-    "schedule",
-    "preamble",
 )
 
 CITATION_MARKER_KEY = "citation_marker"
@@ -35,7 +30,7 @@ CITATION_MARKER_KEY = "citation_marker"
 
 @dataclass(frozen=True)
 class Citation:
-    """A numbered, verifiable reference to one retrieved chunk."""
+    """一个带编号、可追溯到具体检索文本块的引用。"""
 
     number: int
     label: str
@@ -44,7 +39,7 @@ class Citation:
 
 
 def _normalise(value: Any) -> str | None:
-    """Collapse whitespace and treat blanks as absent; casing is preserved."""
+    """合并连续空白，保留大小写，并把空值或空字符串视为缺失。"""
     if value is None:
         return None
     text = " ".join(str(value).split())
@@ -62,7 +57,7 @@ def _first_present(
 
 
 def format_citation_label(metadata: Mapping[str, Any]) -> str | None:
-    """Human-readable label for a chunk, or None if it carries no identifying metadata."""
+    """生成可读的文档标签；缺少身份 metadata 时返回 None。"""
     _, title = _first_present(metadata, TITLE_KEYS)
     if title is None:
         return None
@@ -70,6 +65,12 @@ def format_citation_label(metadata: Mapping[str, Any]) -> str | None:
     locator_key, locator = _first_present(metadata, LOCATOR_KEYS)
     if locator is None:
         return title
+
+    if locator_key == "page":
+        page = metadata["page"]
+        locator = f"page {page + 1 if isinstance(page, int) else locator}"
+    elif locator_key == "page_label":
+        locator = f"page {locator}"
 
     locator_name = _normalise(metadata.get(f"{locator_key}_name"))
     if locator_name is not None:
@@ -80,7 +81,7 @@ def format_citation_label(metadata: Mapping[str, Any]) -> str | None:
 def annotate_documents_for_citation(
     documents: list[Document],
 ) -> tuple[list[Document], list[Citation]]:
-    """Copy documents with a citation_marker in metadata, numbering the citable ones."""
+    """复制文档并添加 citation_marker，只对可以引用的文档连续编号。"""
     annotated: list[Document] = []
     citations: list[Citation] = []
 
@@ -111,7 +112,7 @@ def annotate_documents_for_citation(
 def resolve_answer_citations(
     answer: str, citations: list[Citation]
 ) -> tuple[str, list[Citation]]:
-    """Strip markers the retrieval never supported and drop citations the answer never used."""
+    """移除没有检索依据的编号，并剔除回答中未使用的引用。"""
     citations_by_number = {citation.number: citation for citation in citations}
     cited_numbers: set[int] = set()
 
@@ -128,7 +129,7 @@ def resolve_answer_citations(
 
 
 def citations_to_cache_payload(answer: str, citations: list[Citation]) -> str:
-    """Serialise an answer and its citations for cache storage."""
+    """把回答和引用序列化为可写入缓存的 JSON 字符串。"""
     return json.dumps(
         {"answer": answer, "citations": [asdict(c) for c in citations]},
         ensure_ascii=False,
@@ -136,6 +137,6 @@ def citations_to_cache_payload(answer: str, citations: list[Citation]) -> str:
 
 
 def cache_payload_to_result(payload: str) -> tuple[str, list[Citation]]:
-    """Restore an answer and its citations from a cache payload."""
+    """从缓存载荷恢复回答及引用列表。"""
     data = json.loads(payload)
     return data["answer"], [Citation(**item) for item in data["citations"]]
