@@ -2,32 +2,35 @@
 
 Flame answers questions using user-supplied documents. Contributions should keep
 answers grounded in retrieved passages and make their sources easy to inspect.
+See the Chinese [README](README.md) for installation and the complete service flow.
 
 ## Local setup
 
 Use Python 3.11 or newer. From the project root:
 
 ```bash
-uv sync
-cp .env.example .env
+uv sync --locked --python 3.11
 ```
 
+Copy `.env.example` to `.env` on first setup; do not overwrite an existing `.env`.
 Set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `BGE_M3_PATH` in `.env` for your
 configured chat service and local embedding model. The chat model is configured
 in `backend/config.py`. `EMBEDDING_DEVICE` defaults to `cpu`; set it to a device
 supported by your machine if needed.
 
-Start Redis, then index a local PDF and launch the app:
+Start Redis, then build the product database and launch the app:
 
 ```bash
 docker run -d --name flame-redis -p 6379:6379 redis:7
-uv run python -m scripts.build_bge_db path/to/document.pdf --source-name "Product Guide"
+uv run python -m scripts.build_product_db
 uv run streamlit run app.py
 ```
 
-The application, ingestion script, and evaluation tools use
-`CHROMA_PERSIST_DIRECTORY` from `.env`. Its default is `chroma_db/` in the project
-root. Relative database paths resolve from the project root. Vector databases,
+The Streamlit and FastAPI agent uses `backend.config.product_vector_store`,
+which opens `chroma_db_products/` at the project root, collection `products`.
+The classic RAG interface, PDF ingestion script, and evaluation tools use
+`CHROMA_PERSIST_DIRECTORY` from `.env`, defaulting to `chroma_db/`.
+Relative generic database paths resolve from the project root. Vector databases,
 generated data, model weights, credentials, and local environment files are
 gitignored. The example Markdown files in `data/products/` can be versioned.
 
@@ -58,6 +61,7 @@ curl "http://127.0.0.1:8000/query?query=What+documents+are+available%3F"
 - `scripts/build_bge_db.py`: command-line PDF ingestion.
 - `scripts/prepare_product_chunks.py`: export product chunks and metadata as JSONL.
 - `scripts/build_product_db.py`: build and synchronize the product Chroma collection with local BGE.
+- `scripts/test_retrieval.py`: run the three basic product retrieval checks with real local BGE.
 - `src/pdf_ingestion.ipynb`: notebook example using the ingestion script.
 - `examples/flame_crewai.ipynb`: optional CrewAI integration.
 - `test.ipynb`: example conversation using the classic pipeline.
@@ -110,8 +114,31 @@ product files removed from the input directory. Unmanaged records, other
 collections, and unrelated files are preserved. An empty or invalid product
 directory is rejected before database writes.
 
-The next plan step is configuring the backend to open the same product database
-and collection; implementing the builder alone does not switch the live backend.
+The backend now opens the same product database and collection. The existing
+`retrieve_docs` tool queries `product_vector_store`; its name and the graph
+workflow remain unchanged at this stage. Custom builder database paths must also
+be applied in `backend/config.py`.
+
+Run the week-two basic retrieval checks without a chat API or Redis:
+
+```bash
+uv run python -m scripts.test_retrieval --device cpu
+```
+
+The script checks the first result's product for single-product questions and
+both product IDs in the top 5 for the comparison. It prints source details and
+separate section diagnostics. All basic checks passing returns 0; any failure
+returns 1. Missing data or invalid arguments returns 2. Current basic recall is
+3/3; dedicated selling-point and specification sections still need improvement.
+Optional flags are `--k`, `--persist-directory`, `--model-path`, and `--device`.
+Add `--filter-products` to restrict each case to its known target products.
+Single-product cases use metadata equality; the comparison uses `$in` for both
+products. This exercises existing metadata without rebuilding the database.
+The flag affects this test script; the backend still needs API/State integration
+to receive the current product ID.
+The script also supports `uv run python scripts/test_retrieval.py`. Direct file
+execution resolves project imports from the script location, including when an
+absolute script path is launched from another working directory.
 
 ## Verification
 

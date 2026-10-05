@@ -28,7 +28,7 @@ LOCATOR_KEYS = (
 CITATION_MARKER_KEY = "citation_marker"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True)  # 表示创建后不能直接修改字段
 class Citation:
     """一个带编号、可追溯到具体检索文本块的引用。"""
 
@@ -81,24 +81,57 @@ def format_citation_label(metadata: Mapping[str, Any]) -> str | None:
 def annotate_documents_for_citation(
     documents: list[Document],
 ) -> tuple[list[Document], list[Citation]]:
-    """复制文档并添加 citation_marker，只对可以引用的文档连续编号。"""
+    """给检索出的资料添加引用标记，并建立编号与原文、来源的对应关系。
+
+    参数：
+        documents：检索结果列表。每个 Document 包含正文 page_content 和
+            metadata；商品名或文档标题用于识别资料，章节或页码用于定位。
+
+    返回：
+        annotated：复制后的文档列表，数量和顺序与输入一致。每个文档的
+            metadata 增加 citation_marker，供检索工具拼接给模型的上下文。
+        citations：结构化的 Citation 列表，供后端校验回答中的引用编号，
+            并向界面或 API 提供来源。每条记录保存以下字段：
+            number：引用编号，每次调用从 1 开始，按可引用资料连续编号。
+            label：可读标签，例如“vivo X500 Pro, 核心参数”。
+            snippet：对应文本块的完整正文。
+            source：来源文件名或链接；缺少来源时为 None。
+
+    示例：
+        文档 metadata 包含 product_name="vivo X500 Pro"、section="核心参数"
+        时，第一条可引用资料的 citation_marker 为：
+        "[1] vivo X500 Pro, 核心参数"。
+        模型可在回答中使用 [1]，后端通过 citations 找到对应原文和来源。
+
+    缺少可识别商品名或文档标题的资料仍保留在 annotated 中，但其标记为空，
+    不加入 citations，也不占用编号。函数创建新 Document 和 metadata 字典，
+    原始文档保持不变。
+    """
+    # 两份输出分别服务于模型阅读上下文和后端保存结构化引用。
     annotated: list[Document] = []
     citations: list[Citation] = []
 
     for document in documents:
+        # 根据 metadata 中的商品名或标题，以及章节或页码，生成可读标签。
+        # label 为 None 时表示缺少可识别的资料身份，默认使用空标记。
         label = format_citation_label(document.metadata)
         marker = ""
 
         if label is not None:
             citation = Citation(
+                # 按已生成的引用数量编号，跳过不可引用资料时不会留下编号空缺。
                 number=len(citations) + 1,
                 label=label,
                 snippet=document.page_content,
+                # 合并来源中的多余空白；未提供来源或来源为空时保存 None。
                 source=_normalise(document.metadata.get("source")),
             )
             citations.append(citation)
+            # 模型看到这个标记后，可以在回答中使用对应的 [数字] 引用。
             marker = f"[{citation.number}] {citation.label}"
 
+        # 正文和检索顺序保持不变；复制 metadata 后再写入本次的引用标记。
+        # 即使资料不可引用，也保留该文档，使输出列表与输入逐条对应。
         annotated.append(
             Document(
                 page_content=document.page_content,
@@ -106,6 +139,7 @@ def annotate_documents_for_citation(
             )
         )
 
+    # 调用方用 annotated 拼接模型上下文，用 citations 校验和展示引用。
     return annotated, citations
 
 

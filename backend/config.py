@@ -1,4 +1,4 @@
-"""初始化聊天模型、文本向量模型、向量库、Redis 缓存和图检查点。"""
+"""初始化聊天模型、商品向量库、Redis 缓存和图检查点。"""
 
 from langchain_chroma import Chroma
 from langchain.chat_models import init_chat_model
@@ -7,7 +7,7 @@ import os
 
 from backend.cache import RedisCache
 from backend.embeddings import create_embeddings
-from settings import CHROMA_PERSIST_DIRECTORY
+from settings import PROJECT_ROOT
 
 # 模型配置示例：model = init_chat_model("openai:gpt-5.5", temperature=0)
 model = init_chat_model(
@@ -17,9 +17,11 @@ model = init_chat_model(
     base_url=os.getenv("OPENAI_BASE_URL"),
 )
 embeddings = create_embeddings()
-vector_store = Chroma(
+# 商品库的目录与集合名必须与 scripts/build_product_db.py 保持一致。
+product_vector_store = Chroma(
+    collection_name="products",
     embedding_function=embeddings,
-    persist_directory=CHROMA_PERSIST_DIRECTORY,
+    persist_directory=str(PROJECT_ROOT / "chroma_db_products"),
 )
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")

@@ -1,8 +1,8 @@
 # Flame 开发记录：项目整理与商品知识库
 
-更新日期：2026-10-04。本文汇总本轮已完成的修改，对应[圣火文档](../圣火文档.md)第 1～2 周。
+更新日期：2026-10-05。本文汇总本轮已完成的修改，对应[圣火文档](../圣火文档.md)第 1～2 周。
 
-当前已完成项目命名清理、三个商品文档、Chunk Metadata、商品建库脚本和中文注释。已使用本地 BGE-M3 建成商品库：**22 个文本块，每个向量 1024 维**。后端接入商品库和语义检索验收仍待完成。
+当前已完成项目命名清理、三个商品文档、Chunk Metadata、商品建库脚本、后端商品库配置、基础检索验收、中文注释、独立 `.venv` 和中文 README。已使用本地 BGE-M3 建成商品库：**22 个文本块，每个向量 1024 维**。三个问题的基础商品召回通过；章节召回和完整聊天链路仍需继续验证。安装与完整服务流程见 [README](../README.md)。
 
 ## 1. 项目命名与法律内容清理
 
@@ -81,6 +81,7 @@ data/products/
 | --- | --- | --- |
 | `scripts/prepare_product_chunks.py` | 导出文本和 Metadata，不加载模型 | `data/product_chunks.jsonl` |
 | `scripts/build_product_db.py` | 生成 BGE 向量并同步商品库 | `chroma_db_products/`，集合名 `products` |
+| `scripts/test_retrieval.py` | 用真实 BGE 验证三个问题的商品召回 | 控制台明细、通过结果和退出码 |
 
 ```text
 商品 Markdown → 字段校验 → Document → 按章节及 800/100 切分
@@ -112,7 +113,7 @@ CHROMA_PERSIST_DIRECTORY=chroma_db
 
 ```bash
 # 建立本项目依赖环境
-uv sync
+uv sync --locked --python 3.11
 
 # 导出文本块及 Metadata
 uv run python -m scripts.prepare_product_chunks
@@ -122,6 +123,12 @@ uv run python -m scripts.build_product_db --dry-run
 
 # 使用 .env 中配置的模型建库
 uv run python -m scripts.build_product_db --device cpu
+
+# 第 5 步：运行三个问题的基础检索验收
+uv run python -m scripts.test_retrieval --device cpu
+
+# 演示按测试用例指定的商品范围过滤
+uv run python -m scripts.test_retrieval --filter-products --device cpu
 ```
 
 可选参数：
@@ -137,11 +144,27 @@ uv run python -m scripts.build_product_db --device cpu
 
 商品脚本的相对数据路径及显式传入的模型路径均从项目根目录解析。JSONL 导出脚本可用 `--output` 指定输出文件。
 
-商品库有独立的默认路径和集合名。**当前后端仍读取通用 `chroma_db`，尚未接入商品库；接入时必须同时配置 `chroma_db_products` 路径和 `collection_name="products"`，仅修改 `.env` 中的路径不足以完成接入。**
+第 2 周第 4 步已完成，`backend/config.py` 中的配置为：
+
+```python
+product_vector_store = Chroma(
+    collection_name="products",
+    embedding_function=embeddings,
+    persist_directory=str(PROJECT_ROOT / "chroma_db_products"),
+)
+```
+
+`backend/tools.py` 中的 `retrieve_docs` 已改为调用 `product_vector_store.similarity_search(query, k=5)`，保留编号引用。Streamlit 和 FastAPI 的 Agent 因此读取商品库；经典 RAG、PDF 建库与评测仍使用 `CHROMA_PERSIST_DIRECTORY`。若建库时使用自定义目录，需同步修改后端商品库路径。
+
+第 5 步新增 `scripts/test_retrieval.py`，不依赖聊天模型或 Redis。单商品问题检查首条结果的 `product_id`，对比问题检查前 5 条是否包含两个商品；全部通过退出码为 0，否则为 1。当前三个问题均通过，但卖点和配置问题没有命中专门章节；该诊断单独显示，不计入基础商品归属验收。详细召回记录见[第二周进度](Week2_Metadata_and_Progress.md)。
+
+检索脚本也支持直接运行文件。直接执行时，根据 `__file__` 将项目根目录加入导入路径，解决 `settings` 模块找不到的问题；传入脚本绝对路径时可从任意工作目录运行。`tests/test_retrieval_cli.py` 使用独立进程验证两种入口，不依赖外部 `PYTHONPATH`，不加载真实模型。
+
+可选参数 `--filter-products` 按测试用例中的候选商品过滤：单商品使用 `filter={"product_id": "vivo_x500_pro"}`，对比使用 `$in` 同时允许 Pro 和 Pro Max。已有 Metadata 可直接筛选，无需重建库。开启后真实检索 3/3 通过，Pro 核心卖点和核心参数分别进入第 4、5 条；结果没有混入范围外商品。该开关只用于检索测试，正式 API/State 的商品上下文仍待接入。
 
 ## 6. 中文注释与版本管理
 
-42 个 Python 文件的注释及模块、类、函数 docstring 已改为中文。三个 Notebook 的说明文字和函数 docstring 同步中文化。中文化过程中对比了移除 docstring 后的 AST，确认执行逻辑保持一致；代码标识符和运行时提示词保留原有形式。
+45 个 Python 文件的注释及模块、类、函数 docstring 已为中文。三个 Notebook 的说明文字和函数 docstring 同步中文化。前期中文化过程中对比了移除 docstring 后的 AST，确认执行逻辑保持一致；代码标识符和运行时提示词保留原有形式。
 
 `.gitignore` 已允许 `data/products/*.md` 纳入版本控制；`.env`、模型、向量库、生成的 JSONL、缓存和虚拟环境继续忽略。提交范围包括源码、测试、配置模板、依赖锁定文件、商品样例和开发文档；本地商品库可通过建库脚本重新生成。
 
@@ -149,13 +172,17 @@ uv run python -m scripts.build_product_db --device cpu
 
 | 检查 | 结果 |
 | --- | --- |
-| 自动化测试 | 108 项通过；1 项真实服务测试按配置跳过 |
+| 独立项目环境 | `.venv` 使用 Python 3.11.15，232 个依赖包；`uv sync --locked` 和依赖一致性检查通过 |
+| 自动化测试 | 在 Flame 独立 `.venv` 中，111 项通过；1 项真实服务测试按配置跳过 |
 | 代码检查 | Ruff 静态检查、格式检查和 `git diff --check` 通过 |
 | Notebook | 格式校验及代码语法检查通过 |
 | 真实模型建库 | 使用指定目录的 BGE-M3 成功生成并保存 22 个向量 |
 | 数据回读 | 重新打开商品库，核对唯一 ID、完整 Metadata、7/7/8 分布和 1024 维向量 |
+| 后端商品库接入 | 配置回读现有 22 个块；离线测试验证检索工具读取商品集合并返回引用 |
+| 真实 BGE 检索 | 默认 k=5、不加商品过滤，基础商品召回 3/3 通过；卖点和参数章节未进入前 5 条 |
+| 商品过滤演示 | 开启 `--filter-products` 后 3/3 通过；核心卖点第 4、核心参数第 5，结果只含指定商品 |
 
-测试覆盖商品字段校验、切分继承、稳定 ID、JSONL 导出、商品引用标签，以及重复建库、文档更新、文件移除、保留非管理记录和失败时不删除旧数据。数据库单元测试使用真实 Chroma 和替代向量模型；本地商品库另行使用真实 BGE 生成。
+测试覆盖商品字段校验、切分继承、稳定 ID、JSONL 导出、商品引用标签，以及重复建库、文档更新、文件移除、保留非管理记录和失败时不删除旧数据。`tests/test_backend_product_store.py` 验证配置与工具能定位商品集合、保留引用，并排除其他语料。数据库与工具测试使用真实 Chroma 和替代向量模型；本地商品库及独立检索验收另行使用真实 BGE。完整聊天链路、章节召回与最终回答质量仍需继续验收。
 
 ```bash
 uv run pytest tests/ -q
@@ -166,17 +193,18 @@ uv run ruff format --check .
 RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_agent.py -q
 ```
 
-直接执行 `python tests/test_agent.py` 不会运行 pytest 测试。本轮验证借用了本机已有的 Python 依赖环境，当前仓库尚未建立自己的 `.venv`。
+直接执行 `python tests/test_agent.py` 不会运行 pytest 测试。前期验证使用本机已有的 Python 环境；现已建立 Flame 独立的 `.venv`，使用 Python 3.11.15，后续命令使用本项目解释器或 `uv run`。
+
+新环境安装时发现 `PyMuPDFb==1.24.10` 与 `PyMuPDF==1.28.2` 共用底层库文件，导致 `pymupdf` 导入时出现 `Symbol not found`。已从 `pyproject.toml` 和 `requirements.txt` 移除旧 `PyMuPDFb`，同步更新 `uv.lock`；新版 PyMuPDF 自带底层库。README 补齐环境、配置、建库、检索、Redis、FastAPI、Streamlit 和完整服务链路说明。
 
 ## 8. 当前待办与下一步
 
 按依赖顺序继续：
 
-1. 用 `uv sync` 建立本项目环境，补齐聊天 API 配置并确认 Redis；启动 FastAPI、实际调用 `/query`，验收完整 Agent 链路。
-2. 完成第 2 周第 4 步：在 `backend/config.py` 中配置 `product_vector_store`，统一后端调用、商品库路径和集合名。
-3. 完成第 2 周第 5 步：实际检索“X500 Pro 有什么卖点”“有哪些配置”“Pro Max 和 Pro 有什么区别”，核对返回资料及来源。当前存储校验通过，语义召回质量尚未验收。
-4. 核验或替换演示商品资料，补充人工审核的评测 QA；补上 README 入口，后续按开发阶段提交改动。
-5. 进入第 3～4 周后，再增加 API/State 中的 `product_id`、商品 Metadata 过滤、商品专用提示词及 `retrieve_product_docs` 工具。
+1. 补齐聊天 API 配置并确认 Redis；启动 FastAPI、实际调用 `/query`，验收完整 Agent 链路。独立 `.venv` 和 README 已完成。
+2. 继续改善核心卖点、核心参数的章节召回，扩充检索评测问题；第 3 周加入当前商品上下文和 Metadata 过滤。
+3. 核验或替换演示商品资料，补充人工审核的评测 QA，后续按开发阶段提交改动。
+4. 进入第 3～4 周后，再增加 API/State 中的 `product_id`、商品 Metadata 过滤、商品专用提示词及 `retrieve_product_docs` 工具。
 
 现有对话机制还有三项限制：Agent 工作记忆保存在进程内、后端回答缓存仅按问题共享、多次检索的引用编号可能冲突。商品上下文接入时需要一并检查会话和商品隔离。
 

@@ -782,6 +782,73 @@ wheels = [
 ]
 
 [[package]]
+name = "flame"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "chromadb" },
+    { name = "fastapi" },
+    { name = "ipykernel" },
+    { name = "jupyter" },
+    { name = "langchain" },
+    { name = "langchain-chroma" },
+    { name = "langchain-classic" },
+    { name = "langchain-community" },
+    { name = "langchain-core" },
+    { name = "langchain-huggingface" },
+    { name = "langchain-openai" },
+    { name = "langchain-text-splitters" },
+    { name = "langchainhub" },
+    { name = "langdetect" },
+    { name = "langgraph" },
+    { name = "langsmith" },
+    { name = "openai" },
+    { name = "pymupdf" },
+    { name = "redis" },
+    { name = "sentence-transformers" },
+    { name = "streamlit" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "chromadb", specifier = "==1.5.9" },
+    { name = "fastapi", specifier = "==0.141.1" },
+    { name = "ipykernel", specifier = ">=6.30.1" },
+    { name = "jupyter", specifier = ">=1.1.1" },
+    { name = "langchain", specifier = "==1.3.15" },
+    { name = "langchain-chroma", specifier = "==1.1.0" },
+    { name = "langchain-classic", specifier = "==1.0.8" },
+    { name = "langchain-community", specifier = "==0.4.2" },
+    { name = "langchain-core", specifier = "==1.5.6" },
+    { name = "langchain-huggingface", specifier = ">=1.2.2" },
+    { name = "langchain-openai", specifier = ">=1.5.2" },
+    { name = "langchain-text-splitters", specifier = "==1.1.2" },
+    { name = "langchainhub", specifier = "==0.1.21" },
+    { name = "langdetect", specifier = "==1.0.9" },
+    { name = "langgraph", specifier = "==1.2.11" },
+    { name = "langsmith", specifier = "==0.11.0" },
+    { name = "openai", specifier = ">=1.66.3" },
+    { name = "pymupdf", specifier = "==1.28.2" },
+    { name = "redis", specifier = ">=6.3.0" },
+    { name = "sentence-transformers", specifier = ">=6.1.0" },
+    { name = "streamlit", specifier = "==1.61.1" },
+    { name = "uvicorn", extras = ["standard"], specifier = "==0.52.3" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "ruff", specifier = ">=0.11.0" },
+]
+
+[[package]]
 name = "flatbuffers"
 version = "25.2.10"
 source = { registry = "https://pypi.org/simple" }
@@ -1944,75 +2011,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5b/62/a917e87073767db8ca335c3f5a42fb4c5336509b8d5b03e165e46da47e70/langsmith-0.11.0.tar.gz", hash = "sha256:7339f90e6fd9a1a009445b5084a7a0e56a8b6f17305ee5d7e8c5e7582217854f", size = 4805612, upload-time = "2026-08-14T12:56:55.409Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/aa/18d334f04c12bb9154568747539a1143a93d0c34b894662c065454f396c8/langsmith-0.11.0-py3-none-any.whl", hash = "sha256:e87a3929915936c066b3fa3283ec3f3f0013e2ef7f98a443a7fbe3fab8e784a3", size = 737950, upload-time = "2026-08-14T12:56:53.014Z" },
-]
-
-[[package]]
-name = "flame"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "chromadb" },
-    { name = "fastapi" },
-    { name = "ipykernel" },
-    { name = "jupyter" },
-    { name = "langchain" },
-    { name = "langchain-chroma" },
-    { name = "langchain-classic" },
-    { name = "langchain-community" },
-    { name = "langchain-core" },
-    { name = "langchain-huggingface" },
-    { name = "langchain-openai" },
-    { name = "langchain-text-splitters" },
-    { name = "langchainhub" },
-    { name = "langdetect" },
-    { name = "langgraph" },
-    { name = "langsmith" },
-    { name = "openai" },
-    { name = "pymupdf" },
-    { name = "pymupdfb" },
-    { name = "redis" },
-    { name = "sentence-transformers" },
-    { name = "streamlit" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "chromadb", specifier = "==1.5.9" },
-    { name = "fastapi", specifier = "==0.141.1" },
-    { name = "ipykernel", specifier = ">=6.30.1" },
-    { name = "jupyter", specifier = ">=1.1.1" },
-    { name = "langchain", specifier = "==1.3.15" },
-    { name = "langchain-chroma", specifier = "==1.1.0" },
-    { name = "langchain-classic", specifier = "==1.0.8" },
-    { name = "langchain-community", specifier = "==0.4.2" },
-    { name = "langchain-core", specifier = "==1.5.6" },
-    { name = "langchain-huggingface", specifier = ">=1.2.2" },
-    { name = "langchain-openai", specifier = ">=1.5.2" },
-    { name = "langchain-text-splitters", specifier = "==1.1.2" },
-    { name = "langchainhub", specifier = "==0.1.21" },
-    { name = "langdetect", specifier = "==1.0.9" },
-    { name = "langgraph", specifier = "==1.2.11" },
-    { name = "langsmith", specifier = "==0.11.0" },
-    { name = "openai", specifier = ">=1.66.3" },
-    { name = "pymupdf", specifier = "==1.28.2" },
-    { name = "pymupdfb", specifier = "==1.24.10" },
-    { name = "redis", specifier = ">=6.3.0" },
-    { name = "sentence-transformers", specifier = ">=6.1.0" },
-    { name = "streamlit", specifier = "==1.61.1" },
-    { name = "uvicorn", extras = ["standard"], specifier = "==0.52.3" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8.3.5" },
-    { name = "ruff", specifier = ">=0.11.0" },
 ]
 
 [[package]]
@@ -3505,21 +3503,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/e2/93/08f404a1f0155fe24137cf2d3aabd3e2b4b08c62053ed89c60f2611be3e9/pymupdf-1.28.2-cp310-abi3-win_arm64.whl", hash = "sha256:ffe91a24edc75c80da2a4b62f50fc0f54632d34fc8fe4cbc48e5c7ff07cf8fb4", size = 19759252, upload-time = "2026-08-06T21:39:12.937Z" },
     { url = "https://files.pythonhosted.org/packages/58/8c/d897dcd32a25b58186c968b15ce4324ca029e9d96460de12325314e390be/pymupdf-1.28.2-cp313-abi3-pyemscripten_2025_0_wasm32.whl", hash = "sha256:2e1b574c0fd2cb238021033fd3c0f9c4388816638df064e4bfb56d9d81736dc8", size = 18399403, upload-time = "2026-08-06T21:39:25.008Z" },
     { url = "https://files.pythonhosted.org/packages/f6/f1/de34a1c53fe2bf8c6e71db84b0ced782d408970c9810d2b456a2ae96814c/pymupdf-1.28.2-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:fd481ed48bef56305c41fb7e05a055c03345c899c7b101dad086258b438f8168", size = 25802333, upload-time = "2026-08-06T21:39:41.426Z" },
-]
-
-[[package]]
-name = "pymupdfb"
-version = "1.24.10"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c9/ff/ecfcb41414b51976974d74c8e35fef0a0e5b47c7046a11c860553f5dccf0/PyMuPDFb-1.24.10.tar.gz", hash = "sha256:007b91fa9b528c5c0eecea2e49c486ac02e878274f9e31522bdd948adc5f8327", size = 37502, upload-time = "2024-09-02T16:28:48.343Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/48/94/b217dc987b4ac0e3793984427112d6032563b741e27763f7761c2231d022/PyMuPDFb-1.24.10-py3-none-macosx_10_9_x86_64.whl", hash = "sha256:cd6b24630d90dce9ab3e59d06c5e616686f8d7ec626be1311721fcb062aa0078", size = 15536229, upload-time = "2024-09-02T16:25:19.4Z" },
-    { url = "https://files.pythonhosted.org/packages/16/7a/f634c76d8331cb8dedcfaced17424cc469ee20b7f53cf29c9ef17a01b461/PyMuPDFb-1.24.10-py3-none-macosx_11_0_arm64.whl", hash = "sha256:fda2c34b206f724b1b5685b67188e2a57bcaa5c99bc40a0a5bc62057514c5cdf", size = 15149482, upload-time = "2024-09-02T16:25:34.352Z" },
-    { url = "https://files.pythonhosted.org/packages/62/97/67b5da2edd034e66dadd0ec530e277afb14fe866a3b3b01d9fad154bc6f8/PyMuPDFb-1.24.10-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:4f50a7472f9bb10cbc7a1cd589ee4626ca030b8a4a02749f9a29eb6f00c0e0db", size = 15711338, upload-time = "2024-09-02T22:17:01.592Z" },
-    { url = "https://files.pythonhosted.org/packages/62/b9/ad3f076e86328880797fe7e98c43b2879df56cf6cb75ac3058da06d6e6cb/PyMuPDFb-1.24.10-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:409f1270ef2e70d845e80149ff3db9cfed578274042316cba55cc3e3882421ea", size = 15921939, upload-time = "2024-09-02T16:26:00.118Z" },
-    { url = "https://files.pythonhosted.org/packages/15/e7/02160ea905a7ba16d6e1ca51759ae1c1045785ebebae57ba30e82617f934/PyMuPDFb-1.24.10-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:aca96b6e9ee3096a26810592f4d899f4d3cf3cf0c902ae7e8cca09bce4d946c4", size = 17076991, upload-time = "2024-09-02T16:25:46.703Z" },
-    { url = "https://files.pythonhosted.org/packages/d3/c0/e1ed840440131f71b068cdb3b620a69ec27543b1012a6bd855d8d05f1629/PyMuPDFb-1.24.10-py3-none-win32.whl", hash = "sha256:2d231b42fe3bf79837df235e7fbdf7ff8b46bf4ca1346d0f0124fb1cdd343ce8", size = 11731706, upload-time = "2024-09-02T16:26:19.131Z" },
-    { url = "https://files.pythonhosted.org/packages/70/cb/8459d6c179befd7c6eee555334f054e9a6dcdd9f8671891e1da19e0ce526/PyMuPDFb-1.24.10-py3-none-win_amd64.whl", hash = "sha256:27ea65c701608b6b7632703339ca33ea6d513843b26dbe9bdefb2f56f7b9b196", size = 13186168, upload-time = "2024-09-02T16:26:10.503Z" },
 ]
 
 [[package]]

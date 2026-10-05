@@ -1,6 +1,7 @@
 # Flame
 
 中文开发记录见 [项目整理与商品知识库](Flame_Development_Notes.md)，包含已完成修改、配置、建库流程、验证结果和待办。
+中文安装、服务启动和完整链路说明见 [README](../README.md)。
 
 Flame is a document-based AI assistant. It retrieves relevant passages from a
 local vector database, answers questions using those passages, and exposes
@@ -23,23 +24,25 @@ external PDF is downloaded by the ingestion script.
 ## Setup and use
 
 ```bash
-uv sync
-cp .env.example .env
+uv sync --locked --python 3.11
 ```
 
+Copy `.env.example` to `.env` on first setup; keep and edit an existing `.env`.
 Configure the chat API and local embedding model in `.env`. Start Redis before
 asking questions. See [the contribution guide](../CONTRIBUTING.md) for service
 setup and environment details.
 
 ```bash
-uv run python -m scripts.build_bge_db path/to/document.pdf --source-name "Product Guide"
+uv run python -m scripts.build_product_db
 uv run streamlit run app.py
 ```
 
-The default vector database is `chroma_db/` at the project root. Set
-`CHROMA_PERSIST_DIRECTORY` to select another corpus. Use the same setting for
-indexing, the application, and evaluation. Index your own documents before
-asking document questions.
+The Streamlit and FastAPI agent reads `chroma_db_products/` at the project root,
+collection `products`, through `backend.config.product_vector_store`.
+Build the product database before asking product questions.
+
+The classic RAG interface, PDF builder, and evaluation utilities use the generic
+database path `CHROMA_PERSIST_DIRECTORY`, which defaults to `chroma_db/`.
 
 For an optional source link:
 
@@ -100,9 +103,38 @@ All product metadata is preserved. Stored chunks also carry an
 upsert reproducible IDs and remove obsolete managed records after the new write
 succeeds. Other records, collections, and files are preserved.
 
-The backend still uses its existing generic database configuration. In the next
-plan step, configure `product_vector_store` with both the product database path
-and `collection_name="products"`.
+The backend now opens `product_vector_store` with the product database path and
+`collection_name="products"`. The existing `retrieve_docs` tool queries this
+store and preserves product citations. If you build to a custom directory with
+`--persist-directory`, update the backend path to match it.
+
+The configuration and tool are tested with real Chroma and offline embedding
+substitutes. Run the basic retrieval acceptance with real local BGE:
+
+```bash
+uv run python -m scripts.test_retrieval --device cpu
+```
+
+Direct execution is also supported: `uv run python scripts/test_retrieval.py`.
+An absolute script path can be used from another working directory; project
+imports and data paths are resolved from the script's project root.
+
+This checks the three questions in the week-two plan using unfiltered top-5
+retrieval, without a chat API or Redis. Single-product queries require the first
+result to belong to the target product; the comparison requires both products
+among the returned chunks. Results include product names, sections, sources,
+and text previews. All cases passing returns exit code 0; any failure returns 1.
+
+The current basic product recall is 3/3. The selling-point and configuration
+queries retrieve introductions and FAQs, but miss their dedicated sections in
+the top 5. Section diagnostics are reported separately from the basic pass.
+See [the progress notes](Week2_Metadata_and_Progress.md) for the recorded results.
+
+For a product-filtered demonstration, add `--filter-products`. Single-product
+cases use `filter={"product_id": "vivo_x500_pro"}`; the comparison allows both
+Pro and Pro Max with `$in`. All three checks pass, with Pro's selling-point and
+specification sections at ranks 4 and 5. This uses the cases' known product scope;
+API/State integration for the current product remains a separate step.
 
 ## Evaluation
 

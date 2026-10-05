@@ -13,7 +13,6 @@ langgraph==1.2.11
 langsmith==0.11.0
 openai
 PyMuPDF==1.28.2
-PyMuPDFb==1.24.10
 redis
 streamlit==1.61.1
 uvicorn[standard]==0.52.3
