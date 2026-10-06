@@ -209,10 +209,10 @@ RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_agent.py -q
 
 ## 中文注释
 
-45 个 Python 文件的注释、模块说明和函数或类 docstring 已中文化，
-3 个 Notebook 的说明文字及函数 docstring 也已中文化。
+现有 Python 文件的注释、模块说明和函数或类 docstring 已中文化，
+保留的 PDF 建库 Notebook 说明文字及函数 docstring 也已中文化。
 前期中文化时对比了移除 docstring 后的 AST，确认运行逻辑保持一致。
-验证结果为 111 项测试通过、1 项真实服务测试按配置跳过；已在 Flame 独立
+验证结果为 112 项测试通过、1 项真实服务测试按配置跳过；已在 Flame 独立
 `.venv` 中复验，并确认真实 BGE 商品过滤检索 3/3 通过。
 
 ## 后续阶段
@@ -221,3 +221,11 @@ RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_agent.py -q
 当前测试开关仅演示指定商品范围的过滤。
 正式商品助手提示词和工具改名属于第 4 周。本次没有将这些后续工作算作
 已经完成，也没有提前改动 LangGraph 流程。
+
+## 架构清理
+
+当前仅保留 LangGraph Agent 问答入口。经典 RAG 对话类、固定问答链路、
+相关 Notebook、未使用的 schema 和独立 CrewAI 示例已删除。
+Agent 缓存集中在 `backend/cache.py`；商品评测改为读取 `products` 集合，
+使用与 Agent 一致的 Top-5 相似度检索。清理详情见开发记录第 9 节。
+这项清理不等于完成第 3 周的商品上下文和业务过滤。

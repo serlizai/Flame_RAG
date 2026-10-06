@@ -3,7 +3,10 @@
 import random
 
 from langchain_chroma import Chroma
-from settings import CHROMA_PERSIST_DIRECTORY
+from settings import PROJECT_ROOT
+
+PRODUCT_PERSIST_DIRECTORY = str(PROJECT_ROOT / "chroma_db_products")
+PRODUCT_COLLECTION_NAME = "products"
 
 TERMINAL_PUNCTUATION = ".!?"
 
@@ -22,10 +25,17 @@ def looks_self_contained(chunk_text: str) -> bool:
 
 
 def load_all_chunk_texts(
-    persist_directory: str = CHROMA_PERSIST_DIRECTORY,
+    persist_directory: str = PRODUCT_PERSIST_DIRECTORY,
+    *,
+    collection_name: str = PRODUCT_COLLECTION_NAME,
 ) -> list[str]:
-    """读取库中已有文本，不加载 embedding 模型，也不调用聊天 API。"""
-    vector_store = Chroma(persist_directory=persist_directory, embedding_function=None)
+    """默认读取商品集合；其他语料需显式指定集合，不创建空集合或加载模型。"""
+    vector_store = Chroma(
+        collection_name=collection_name,
+        persist_directory=persist_directory,
+        embedding_function=None,
+        create_collection_if_not_exists=False,
+    )
     return vector_store.get()["documents"]
 
 

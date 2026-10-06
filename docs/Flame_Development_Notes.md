@@ -4,6 +4,8 @@
 
 当前已完成项目命名清理、三个商品文档、Chunk Metadata、商品建库脚本、后端商品库配置、基础检索验收、中文注释、独立 `.venv` 和中文 README。已使用本地 BGE-M3 建成商品库：**22 个文本块，每个向量 1024 维**。三个问题的基础商品召回通过；章节召回和完整聊天链路仍需继续验证。安装与完整服务流程见 [README](../README.md)。
 
+项目现仅保留 `backend/` 中的 LangGraph Agent 问答架构；经典 RAG、独立 CrewAI 示例及旧 schema 已移除，具体清理范围见第 9 节。
+
 ## 1. 项目命名与法律内容清理
 
 项目从 LawGlance 整理为 Flame，主要变化如下：
@@ -11,13 +13,13 @@
 | 范围 | 修改结果 |
 | --- | --- |
 | 项目与界面 | `pyproject.toml`、`uv.lock` 和 Streamlit 界面使用 Flame 名称，移除法律主题介绍、链接和图片 |
-| 经典 RAG 入口 | `lawglance_main.py` 改为 `flame_main.py`，`Lawglance` 类改为 `Flame`；调用方需使用新名称 |
+| 问答架构 | 仅保留 LangGraph Agent；原经典 RAG 的 `flame_main.py` 和 `chains.py` 已删除 |
 | 提示词 | `prompts.py` 和 `config/prompts.yaml` 改为通用文档问答，要求依据资料回答并提供编号引用 |
 | 引用 | `citations.py` 支持通用文档标题、章节和页码；新增商品名支持，可显示“商品名 + 章节” |
 | 缓存 | Redis 回答缓存和聊天历史使用 `flame:` 键前缀，避免混用旧项目缓存 |
 | PDF 建库 | 使用 `scripts/build_bge_db.py` 导入指定的本地 PDF，移除固定法律资料下载和清空目录逻辑 |
 | 评测与测试 | 法律专用样例改为通用文档或商品样例；检索评测使用共享的本地 BGE；旧法律 QA 数据清空，等待补充新参考集 |
-| 文档与 Notebook | 项目文档改为 `docs/Flame_Documentation.md`；示例改为 `src/pdf_ingestion.ipynb`、`examples/flame_crewai.ipynb` |
+| 文档与 Notebook | 项目文档为 `docs/Flame_Documentation.md`；仅保留 `src/pdf_ingestion.ipynb` 建库辅助示例 |
 
 法律主题 Logo 和视频缩略图已删除。`LICENSE.md` 保留原许可证和上游版权信息；旧本地向量库保留，未迁移为商品库。LangGraph 节点与工具循环沿用现有结构。
 
@@ -154,7 +156,7 @@ product_vector_store = Chroma(
 )
 ```
 
-`backend/tools.py` 中的 `retrieve_docs` 已改为调用 `product_vector_store.similarity_search(query, k=5)`，保留编号引用。Streamlit 和 FastAPI 的 Agent 因此读取商品库；经典 RAG、PDF 建库与评测仍使用 `CHROMA_PERSIST_DIRECTORY`。若建库时使用自定义目录，需同步修改后端商品库路径。
+`backend/tools.py` 中的 `retrieve_docs` 已改为调用 `product_vector_store.similarity_search(query, k=5)`，保留编号引用。Streamlit、FastAPI 和商品评测均读取商品集合；`CHROMA_PERSIST_DIRECTORY` 仅用于可选 PDF 导入工具。若建库时使用自定义目录，需同步修改后端商品库路径。
 
 第 5 步新增 `scripts/test_retrieval.py`，不依赖聊天模型或 Redis。单商品问题检查首条结果的 `product_id`，对比问题检查前 5 条是否包含两个商品；全部通过退出码为 0，否则为 1。当前三个问题均通过，但卖点和配置问题没有命中专门章节；该诊断单独显示，不计入基础商品归属验收。详细召回记录见[第二周进度](Week2_Metadata_and_Progress.md)。
 
@@ -164,7 +166,7 @@ product_vector_store = Chroma(
 
 ## 6. 中文注释与版本管理
 
-45 个 Python 文件的注释及模块、类、函数 docstring 已为中文。三个 Notebook 的说明文字和函数 docstring 同步中文化。前期中文化过程中对比了移除 docstring 后的 AST，确认执行逻辑保持一致；代码标识符和运行时提示词保留原有形式。
+现有 Python 文件的注释及模块、类、函数 docstring 使用中文，保留的 PDF 建库 Notebook 说明也为中文。前期中文化过程中对比了移除 docstring 后的 AST，确认执行逻辑保持一致；代码标识符和运行时提示词保留原有形式。
 
 `.gitignore` 已允许 `data/products/*.md` 纳入版本控制；`.env`、模型、向量库、生成的 JSONL、缓存和虚拟环境继续忽略。提交范围包括源码、测试、配置模板、依赖锁定文件、商品样例和开发文档；本地商品库可通过建库脚本重新生成。
 
@@ -173,12 +175,13 @@ product_vector_store = Chroma(
 | 检查 | 结果 |
 | --- | --- |
 | 独立项目环境 | `.venv` 使用 Python 3.11.15，232 个依赖包；`uv sync --locked` 和依赖一致性检查通过 |
-| 自动化测试 | 在 Flame 独立 `.venv` 中，111 项通过；1 项真实服务测试按配置跳过 |
+| 自动化测试 | 在 Flame 独立 `.venv` 中，112 项通过；1 项真实服务测试按配置跳过 |
 | 代码检查 | Ruff 静态检查、格式检查和 `git diff --check` 通过 |
-| Notebook | 格式校验及代码语法检查通过 |
+| Notebook | 保留的 PDF 建库 Notebook 格式及代码语法检查通过 |
 | 真实模型建库 | 使用指定目录的 BGE-M3 成功生成并保存 22 个向量 |
 | 数据回读 | 重新打开商品库，核对唯一 ID、完整 Metadata、7/7/8 分布和 1024 维向量 |
 | 后端商品库接入 | 配置回读现有 22 个块；离线测试验证检索工具读取商品集合并返回引用 |
+| 商品评测接入 | 真实 Chroma 与离线向量测试确认评测读取 `products` 集合、召回 5 条并排除默认集合的其他语料 |
 | 真实 BGE 检索 | 默认 k=5、不加商品过滤，基础商品召回 3/3 通过；卖点和参数章节未进入前 5 条 |
 | 商品过滤演示 | 开启 `--filter-products` 后 3/3 通过；核心卖点第 4、核心参数第 5，结果只含指定商品 |
 
@@ -209,3 +212,28 @@ RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_agent.py -q
 现有对话机制还有三项限制：Agent 工作记忆保存在进程内、后端回答缓存仅按问题共享、多次检索的引用编号可能冲突。商品上下文接入时需要一并检查会话和商品隔离。
 
 更详细的阶段检查见[第二周 Metadata 与进度记录](Week2_Metadata_and_Progress.md)；通用运行说明见[项目说明](Flame_Documentation.md)和[贡献指南](../CONTRIBUTING.md)。
+
+## 9. 移除经典 RAG，仅保留 Agent
+
+删除以下文件：
+
+| 文件 | 删除原因 |
+| --- | --- |
+| `flame_main.py`、`chains.py` | 经典 RAG 对话类及固定问答链路 |
+| `test.ipynb` | 依赖经典 RAG 的对话示例 |
+| `cache.py` | 原经典缓存基类；Agent 所需功能已集中到 `backend/cache.py` |
+| `backend/schema.py` | 无调用方的旧结构化输出定义，避免与实际 `Citation` 混淆 |
+| `examples/flame_crewai.ipynb`、`examples/requirements.txt` | 独立 CrewAI 架构示例及其专用依赖 |
+
+Streamlit 与 FastAPI 均通过 `backend.retrieval.agent_invoke()` 调用 LangGraph。
+缓存键、过期时间和 Redis 聊天历史前缀保持原 Agent 的行为。
+`citations.py`、`prompts.py` 和后端导入入口继续提供实际使用的引用与提示词。
+PDF 导入、BGE 模型加载、商品建库和评测工具作为辅助功能保留。
+
+商品评测默认读取 `chroma_db_products` 的 `products` 集合，检索方式改为
+`similarity`、`k=5`，与当前 Agent 一致；缺少集合时报错，不自动创建空集合。
+评测 QA 集仍待人工补充，中文 Markdown 不适用原有英文段落抽样规则。
+
+已从 `pyproject.toml`、`requirements.txt` 移除直接声明的 `langchain-classic`，
+并更新 `uv.lock`。它仍由 `langchain-community` 作为传递依赖安装，后者用于
+Redis 历史及 PDF 导入；应用源码已不再导入 `langchain_classic`。

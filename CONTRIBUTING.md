@@ -28,13 +28,15 @@ uv run streamlit run app.py
 
 The Streamlit and FastAPI agent uses `backend.config.product_vector_store`,
 which opens `chroma_db_products/` at the project root, collection `products`.
-The classic RAG interface, PDF ingestion script, and evaluation tools use
-`CHROMA_PERSIST_DIRECTORY` from `.env`, defaulting to `chroma_db/`.
-Relative generic database paths resolve from the project root. Vector databases,
+Product evaluation uses the same product collection and top-5 retrieval as the
+agent. The optional PDF ingestion script uses `CHROMA_PERSIST_DIRECTORY` from
+`.env`, defaulting to `chroma_db/`. Relative PDF database paths resolve from the
+project root. Vector databases,
 generated data, model weights, credentials, and local environment files are
 gitignored. The example Markdown files in `data/products/` can be versioned.
 
-Flame uses its own Redis key namespace for cached answers and chat transcripts.
+Flame keeps its Redis cache implementation in `backend/cache.py`, using its own
+key namespace for cached answers and chat transcripts.
 
 The ingestion script accepts an optional `--source-url` for citations and
 `--persist-directory` for a specific database. It adds documents to that
@@ -54,8 +56,7 @@ curl "http://127.0.0.1:8000/query?query=What+documents+are+available%3F"
 - `backend/embeddings.py`: shared embedding factory for ingestion and retrieval.
 - `backend/product_documents.py`: product Markdown parsing and chunk metadata.
 - `settings.py`: shared environment loading and vector database path.
-- `flame_main.py`, `chains.py`: classic RAG pipeline and `Flame` interface.
-- `prompts.py`: canonical prompts shared by both pipelines.
+- `prompts.py`: canonical agent prompts.
 - `config/prompts.yaml`: equivalent prompts for configuration-based integrations.
 - `citations.py`: generic document labels, citation numbering, and cache payloads.
 - `scripts/build_bge_db.py`: command-line PDF ingestion.
@@ -63,10 +64,12 @@ curl "http://127.0.0.1:8000/query?query=What+documents+are+available%3F"
 - `scripts/build_product_db.py`: build and synchronize the product Chroma collection with local BGE.
 - `scripts/test_retrieval.py`: run the three basic product retrieval checks with real local BGE.
 - `src/pdf_ingestion.ipynb`: notebook example using the ingestion script.
-- `examples/flame_crewai.ipynb`: optional CrewAI integration.
-- `test.ipynb`: example conversation using the classic pipeline.
 - `eval/`: chunk sampling, question drafting, and retrieval/citation metrics.
 - `tests/`: unit tests and an opt-in backend smoke test.
+
+LangGraph is the only question-answering architecture. Classic RAG entry points,
+their conversation notebook, the separate CrewAI example, and unused output
+schemas have been removed. The remaining PDF notebook is an ingestion utility.
 
 ## Product document preparation
 

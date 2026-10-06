@@ -79,7 +79,9 @@ def test_indexes_user_pdfs_with_citations_and_preserves_existing_data(
     assert by_title["maintenance"]["source"] == second_pdf.as_uri()
     assert marker.read_text() == "existing data"
     assert not (working_directory / "index").exists()
-    assert set(load_all_chunk_texts(str(database_path))) == set(stored["documents"])
+    assert set(
+        load_all_chunk_texts(str(database_path), collection_name="langchain")
+    ) == set(stored["documents"])
 
     from langchain_core.documents import Document
 

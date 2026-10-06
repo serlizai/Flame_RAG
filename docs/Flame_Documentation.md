@@ -13,8 +13,9 @@ The Streamlit interface in `app.py` calls the LangGraph backend. The backend can
 retrieve document chunks, generate an answer, and resolve its citation markers.
 The same backend is available through FastAPI in `backend/main.py`.
 
-`Flame` in `flame_main.py` provides a classic RAG interface. Both pipelines share
-`prompts.py`, the citation model, and Redis cache utilities.
+LangGraph is the only question-answering architecture. Agent prompts are defined
+in `prompts.py`, the citation model in `citations.py`, and Redis cache/history
+utilities in `backend/cache.py`.
 
 PDF ingestion uses PyMuPDF, overlapping text chunks, local BGE embeddings, and
 Chroma. Source titles come from the PDF filename or `--source-name`. Page labels
@@ -41,8 +42,9 @@ The Streamlit and FastAPI agent reads `chroma_db_products/` at the project root,
 collection `products`, through `backend.config.product_vector_store`.
 Build the product database before asking product questions.
 
-The classic RAG interface, PDF builder, and evaluation utilities use the generic
-database path `CHROMA_PERSIST_DIRECTORY`, which defaults to `chroma_db/`.
+Product evaluation also reads the `products` collection with top-5 similarity
+retrieval. The optional PDF builder uses `CHROMA_PERSIST_DIRECTORY`, which
+defaults to `chroma_db/`.
 
 For an optional source link:
 

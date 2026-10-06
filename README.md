@@ -1,6 +1,6 @@
 # Flame 商品问答助手
 
-Flame 使用本地 BGE-M3 和 Chroma 检索商品资料，再通过 LangGraph 与聊天模型生成带来源引用的回答。提供 FastAPI 接口和 Streamlit 聊天界面。
+Flame 使用本地 BGE-M3 和 Chroma 检索商品资料，再通过 LangGraph 与聊天模型生成带来源引用的回答。项目仅保留 LangGraph Agent 问答架构，提供 FastAPI 接口和 Streamlit 聊天界面。
 
 当前完成第二周的商品文档、Metadata、建库与基础检索。三个 vivo X500 文档为**虚构演示数据**，参数、价格和售后规则需要核验后才能用于真实商品问答。
 
@@ -47,7 +47,7 @@ CACHE_TTL=3600
 
 `backend/config.py` 中的聊天模型名目前是 `qwen3.8-27b`，需与服务提供方支持的模型名一致。聊天服务必须支持工具调用。其他机器需要修改本地模型路径。
 
-商品 Agent 固定读取 `chroma_db_products/` 的 `products` 集合；`CHROMA_PERSIST_DIRECTORY` 用于经典 RAG、PDF 建库和评测工具。`.env`、`.venv`、向量库和模型文件均被 Git 忽略。
+商品 Agent 和商品评测默认读取 `chroma_db_products/` 的 `products` 集合；`CHROMA_PERSIST_DIRECTORY` 仅用于可选的 PDF 导入工具。`.env`、`.venv`、向量库和模型文件均被 Git 忽略。
 
 ## 3. 准备商品库
 
@@ -182,7 +182,9 @@ RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_agent.py -q
 
 最后一条测试调用真实 Agent，普通测试默认跳过它；FastAPI 的 HTTP 请求需另外按第 5 节手动验收。
 
-当前已完成独立项目环境、商品库及真实 BGE 检索。独立 `.venv` 使用 Python 3.11.15，安装 232 个依赖包；111 项测试通过、1 项真实服务测试跳过，Ruff 检查通过。已移除与新版 PyMuPDF 底层库冲突的旧 PyMuPDFb，并同步依赖声明和锁文件。
+当前已完成独立项目环境、商品库及真实 BGE 检索。独立 `.venv` 使用 Python 3.11.15，安装 232 个依赖包；112 项测试通过、1 项真实服务测试跳过，Ruff 检查通过。已移除与新版 PyMuPDF 底层库冲突的旧 PyMuPDFb，并同步依赖声明和锁文件。
+
+经典 RAG 入口、对话 Notebook、独立 CrewAI 示例和未使用的旧 schema 已删除；缓存集中在 `backend/cache.py`。`langchain-classic` 已从直接依赖中移除，但仍由 `langchain-community` 作为传递依赖安装，不代表项目仍保留经典问答代码。
 
 本机 `.env` 中的聊天密钥和接口地址仍未填写，完整问答服务尚未验收。下一阶段是接入 API/State 的当前商品上下文及正式检索过滤。
 
@@ -197,6 +199,8 @@ RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_agent.py -q
 | `backend/tools.py`、`citations.py` | 商品检索工具及引用处理 |
 | `backend/product_documents.py` | 商品字段校验和文本切分 |
 | `scripts/`、`data/products/` | 建库、检索脚本与商品文档 |
-| `app.py`、`flame_main.py` | Streamlit 入口与经典 RAG 接口 |
+| `app.py` | Streamlit 聊天入口 |
+| `backend/cache.py` | Agent 回答缓存和 Redis 聊天历史 |
+| `eval/` | 商品集合抽样、Top-5 检索和引用评测 |
 
 详细记录见[开发文档](docs/Flame_Development_Notes.md)、[第二周进度](docs/Week2_Metadata_and_Progress.md)和[圣火计划](圣火文档.md)。贡献规范见[CONTRIBUTING.md](CONTRIBUTING.md)，上游许可证见[LICENSE.md](LICENSE.md)。
