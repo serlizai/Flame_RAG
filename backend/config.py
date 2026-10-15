@@ -2,10 +2,12 @@
 
 from langchain_chroma import Chroma
 from langchain.chat_models import init_chat_model
-from langgraph.checkpoint.memory import MemorySaver
+from contextlib import ExitStack
+import atexit
 import os
 
 from backend.cache import RedisCache
+from backend.checkpoints import sqlite_checkpointer
 from backend.embeddings import create_embeddings
 from settings import PROJECT_ROOT
 
@@ -28,4 +30,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CACHE_TTL = int(os.getenv("CACHE_TTL", "3600"))
 cache = RedisCache(REDIS_URL)
 
-memory = MemorySaver()
+# API、Streamlit 和命令行都保持连接到进程退出，状态持久化到同一个本地文件。
+_checkpoint_resources = ExitStack()
+atexit.register(_checkpoint_resources.close)
+checkpointer = _checkpoint_resources.enter_context(sqlite_checkpointer())

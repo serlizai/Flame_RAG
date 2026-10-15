@@ -170,8 +170,8 @@ uv run python -m scripts.test_retrieval --filter-products --device cpu
 | 计划项 | 当前状态 | 尚需完成的内容 |
 | --- | --- | --- |
 | Flame 命名与目录 | 已完成主要整理 | `backend/`、`scripts/`、`data/products/`、`config/` 均存在 |
-| 百炼、本地 BGE、Redis、Agent 原链路 | 本地 BGE 与商品 Chroma 已验证；完整 Agent 链路未验收 | `.env` 已配置 BGE；仍需补充聊天 API 配置、确认 Redis，并运行真实 smoke test |
-| FastAPI 启动与请求 | API 实现存在，未完成运行验收 | 启动服务并实际调用 `/query` |
+| 聊天模型、本地 BGE、Redis、Agent 原链路 | 2026-10-13 真实链路已验收，实际执行商品检索工具并返回有效引用 | 2026-10-15 已完成第 3 周当前商品上下文与正式过滤，并通过真实 Agent 和 HTTP 验收 |
+| FastAPI 启动与请求 | 2026-10-13 首次问答、同会话追问和缓存请求均返回 HTTP 200 | 第 5 周再实现正式商品与聊天接口 |
 | 本项目依赖环境 | 已建立独立 `.venv`，Python 3.11.15 | 使用 `uv sync --locked --python 3.11` 复现，后续通过 `uv run` 运行 |
 | Git 仓库整理 | 源码、文档和商品样例已整理 | 后续按阶段提交；使用 `git status` 和 `git log` 核对工作区及提交状态 |
 | README 启动说明 | 已补齐中文 [README](../README.md) | 包含安装、配置、建库、检索、服务启动与完整链路验收方式 |
@@ -183,7 +183,7 @@ uv run python -m scripts.test_retrieval --filter-products --device cpu
 RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_agent.py -q
 ```
 
-运行前需要配置聊天服务、本地 BGE、Redis 和已建好的语料库。
+运行前需要配置聊天服务、本地 BGE、Redis 和已建好的语料库。2026-10-13 已修正本机 Redis 认证，真实测试 1 项通过，并完成实际 HTTP 请求验收，详见[开发记录第 10 节](Flame_Development_Notes.md#10-agent-真实链路验收2026-10-13)。
 
 ## 第 2 周检查
 
@@ -204,8 +204,8 @@ RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_agent.py -q
 语义检索质量通过。
 
 独立环境安装时修复了旧 `PyMuPDFb` 与新版 `PyMuPDF` 的底层库冲突，
-依赖声明和锁文件同步调整。当前聊天 API 配置仍为空，环境和 README 完成
-不代表 FastAPI、Redis 与真实模型的完整问答链路已经验收。
+依赖声明和锁文件同步调整。当前聊天 API 和 Redis 认证已配置；2026-10-13
+通过真实 Agent 测试及 FastAPI HTTP 验收，确认完整问答链路可运行。
 
 ## 中文注释
 
@@ -217,8 +217,10 @@ RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_agent.py -q
 
 ## 后续阶段
 
-商品上下文、API 中的 `product_id` 和业务链路中的 Metadata Filter 属于第 3 周；
-当前测试开关仅演示指定商品范围的过滤。
+商品上下文、API 中的 `product_id` 和业务链路中的 Metadata Filter 属于第 3 周。
+2026-10-15 已完成商品表、API 商品输入、State 当前商品字段和正式检索过滤，
+并通过真实 Agent 验收。业务工具从 State 获取当前商品 ID，不依赖检索测试开关，
+详见[第三周进度](Week3_Product_Context.md)。
 正式商品助手提示词和工具改名属于第 4 周。本次没有将这些后续工作算作
 已经完成，也没有提前改动 LangGraph 流程。
 

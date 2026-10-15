@@ -1,0 +1,17 @@
+[
+  {
+    "id": "vivo_x500",
+    "sku": "100000",
+    "name": "vivo X500"
+  },
+  {
+    "id": "vivo_x500_pro",
+    "sku": "100001",
+    "name": "vivo X500 Pro"
+  },
+  {
+    "id": "vivo_x500_pro_max",
+    "sku": "100002",
+    "name": "vivo X500 Pro Max"
+  }
+]

@@ -212,6 +212,22 @@ def test_numbers_citable_documents_from_one():
     assert [c.number for c in citations] == [1, 2]
 
 
+def test_continues_numbers_after_an_earlier_retrieval():
+    """连续检索可指定起始编号，同时跳过不能引用的资料。"""
+    annotated, citations = annotate_documents_for_citation(
+        [
+            build_part_document("新资料"),
+            build_greeting_document(),
+            build_part_document(),
+        ],
+        start_number=6,
+    )
+    assert [c.number for c in citations] == [6, 7]
+    assert annotated[0].metadata[CITATION_MARKER_KEY].startswith("[6] ")
+    assert annotated[1].metadata[CITATION_MARKER_KEY] == ""
+    assert annotated[2].metadata[CITATION_MARKER_KEY].startswith("[7] ")
+
+
 def test_embeds_the_number_and_label_in_the_marker():
     annotated, _ = annotate_documents_for_citation([build_part_document()])
 

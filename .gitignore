@@ -21,9 +21,10 @@ env/
 !.env.*.example
 .streamlit/secrets.toml
 
-# 本地向量库、下载数据与模型权重；商品 Markdown 可纳入版本控制
+# 本地向量库、下载数据与模型权重；商品表和 Markdown 可纳入版本控制
 /chroma_db*/
 /data/*
+!/data/products.json
 !/data/products/
 /data/products/*
 !/data/products/*.md

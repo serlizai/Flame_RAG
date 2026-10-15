@@ -80,19 +80,23 @@ def format_citation_label(metadata: Mapping[str, Any]) -> str | None:
 
 def annotate_documents_for_citation(
     documents: list[Document],
+    *,
+    start_number: int = 1,
 ) -> tuple[list[Document], list[Citation]]:
     """给检索出的资料添加引用标记，并建立编号与原文、来源的对应关系。
 
     参数：
         documents：检索结果列表。每个 Document 包含正文 page_content 和
             metadata；商品名或文档标题用于识别资料，章节或页码用于定位。
+        start_number：本批引用的起始编号，默认从 1 开始；Agent 连续检索时
+            从已有最大编号之后继续，避免相同编号指向不同文本。
 
     返回：
         annotated：复制后的文档列表，数量和顺序与输入一致。每个文档的
             metadata 增加 citation_marker，供检索工具拼接给模型的上下文。
         citations：结构化的 Citation 列表，供后端校验回答中的引用编号，
             并向界面或 API 提供来源。每条记录保存以下字段：
-            number：引用编号，每次调用从 1 开始，按可引用资料连续编号。
+            number：引用编号，从 start_number 开始，按可引用资料连续编号。
             label：可读标签，例如“vivo X500 Pro, 核心参数”。
             snippet：对应文本块的完整正文。
             source：来源文件名或链接；缺少来源时为 None。
@@ -120,7 +124,7 @@ def annotate_documents_for_citation(
         if label is not None:
             citation = Citation(
                 # 按已生成的引用数量编号，跳过不可引用资料时不会留下编号空缺。
-                number=len(citations) + 1,
+                number=start_number + len(citations),
                 label=label,
                 snippet=document.page_content,
                 # 合并来源中的多余空白；未提供来源或来源为空时保存 None。

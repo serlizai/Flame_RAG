@@ -38,7 +38,9 @@ def load_module(name, path, monkeypatch):
     return module
 
 
-def test_backend_tool_reads_product_collection_from_project_root(tmp_path, monkeypatch):
+def test_backend_tool_reads_product_collection_from_project_root(
+    tmp_path, monkeypatch, request
+):
     source_root = Path(__file__).resolve().parents[1]
     embeddings = OfflineEmbeddings()
     chunks = split_product_documents(load_product_documents(DEFAULT_PRODUCTS_DIRECTORY))
@@ -58,6 +60,7 @@ def test_backend_tool_reads_product_collection_from_project_root(tmp_path, monke
     monkeypatch.setattr(chat_models, "init_chat_model", lambda **kwargs: object())
     monkeypatch.setattr(embedding_config, "create_embeddings", lambda: embeddings)
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("CHECKPOINT_SQLITE_PATH", str(tmp_path / "checkpoints.sqlite"))
     other_directory = tmp_path / "elsewhere"
     other_directory.mkdir()
     monkeypatch.chdir(other_directory)
@@ -65,6 +68,7 @@ def test_backend_tool_reads_product_collection_from_project_root(tmp_path, monke
     config = load_module(
         "flame_product_config_test", source_root / "backend" / "config.py", monkeypatch
     )
+    request.addfinalizer(config._checkpoint_resources.close)
     stored = config.product_vector_store.get()
     assert set(stored["ids"]) == {chunk.metadata["chunk_id"] for chunk in chunks}
 

@@ -6,8 +6,9 @@ from backend.state import MessagesState
 from typing import Literal
 from backend.tools import retrieve_docs
 from backend.config import model
-from backend.citation import resolve_answer_citations
+from backend.citation import Citation, resolve_answer_citations
 from backend.prompts import SYSTEM_PROMPT, QA_PROMPT
+from backend.products import load_products
 
 
 # 定义模型可调用的工具
@@ -17,6 +18,39 @@ tools_by_name = {tool.name: tool for tool in tools}
 model_with_tools = model.bind_tools(tools)
 
 
+def _context_citations(messages):
+    """从当前商品的工具结果和缓存回答中收集可用引用。"""
+    citations = []
+    for message in messages:
+        if isinstance(message, ToolMessage) and message.artifact:
+            # 检查点恢复 ToolMessage 时，artifact 中的数据类可能变成字典。
+            citations.extend(
+                Citation(**citation) if isinstance(citation, dict) else citation
+                for citation in message.artifact
+            )
+        elif isinstance(message, AIMessage):
+            citations.extend(
+                Citation(**citation)
+                for citation in message.additional_kwargs.get("citations", [])
+            )
+    return citations
+
+
+def _system_message(state: dict):
+    """补充当前商品身份，使模型能理解“这款”，检索范围仍由后端控制。"""
+    prompt = SYSTEM_PROMPT
+    product_id = state.get("product_id")
+    if product_id is not None:
+        product = load_products()[product_id]
+        prompt += (
+            f"\n当前商品：{product.name}（product_id={product.id}）。"
+            "本轮问题中的‘这款’、‘它’均指当前商品。"
+            "查询商品资料时调用 retrieve_docs；工具只检索当前商品，"
+            "不得使用其他型号的资料代替。"
+        )
+    return SystemMessage(content=prompt)
+
+
 # 语言模型调用节点
 # ---------
 def llm_call(state: dict):
@@ -24,9 +58,7 @@ def llm_call(state: dict):
 
     return {
         "messages": [
-            model_with_tools.invoke(
-                [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
-            )
+            model_with_tools.invoke([_system_message(state)] + state["messages"])
         ],
         "llm_calls": state.get("llm_calls", 0) + 1,
     }
@@ -39,12 +71,26 @@ def tool_node(state: dict):
 
     result = []
     new_citations = []
+    citation_start = (
+        max((c.number for c in _context_citations(state["messages"])), default=0) + 1
+    )
     for tool_call in state["messages"][-1].tool_calls:
         tool = tools_by_name[tool_call["name"]]
+        # 覆盖模型可能提交的同名参数，商品范围只信任服务端 State。
+        if tool.name == retrieve_docs.name:
+            tool_call = {
+                **tool_call,
+                "args": {
+                    **tool_call["args"],
+                    "product_id": state.get("product_id"),
+                    "citation_start": citation_start,
+                },
+            }
         tool_message = tool.invoke(tool_call)
         result.append(tool_message)
         if tool_message.artifact:
             new_citations.extend(tool_message.artifact)
+            citation_start += len(tool_message.artifact)
     return {"messages": result, "citations": new_citations}
 
 
@@ -64,10 +110,12 @@ def final_answer(state: dict):
 
     qa_prompt = QA_PROMPT.format(context=context, input=question)
 
-    result = model.invoke(messages + [HumanMessage(content=qa_prompt)])
+    result = model.invoke(
+        [_system_message(state)] + messages + [HumanMessage(content=qa_prompt)]
+    )
 
     resolved_answer, kept_citations = resolve_answer_citations(
-        result.content, state.get("citations", [])
+        result.content, _context_citations(messages)
     )
     sources = "\n".join(f"[{c.number}] {c.label}" for c in kept_citations)
     content = (

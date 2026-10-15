@@ -9,6 +9,7 @@ langchain-text-splitters==1.1.2
 langchainhub==0.1.21
 langdetect==1.0.9
 langgraph==1.2.11
+langgraph-checkpoint-sqlite==3.1.2
 langsmith==0.11.0
 openai
 PyMuPDF==1.28.2
