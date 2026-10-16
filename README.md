@@ -4,6 +4,8 @@ Flame 使用本地 BGE-M3 和 Chroma 检索商品资料，再通过 LangGraph �
 
 当前完成第二周的商品文档、Metadata、建库与基础检索，以及第三周的商品表、API 输入、State 和正式商品过滤。API 指定商品后，可以直接问“这款”，检索仅返回当前商品的资料；各商品分别保存上下文，SQLite 支持重启后续聊。第三周进度见[当前商品上下文记录](docs/Week3_Product_Context.md)，会话实现见[检查点开发记录](docs/Product_Sessions_and_Checkpoints.md)。三个 vivo X500 文档为**虚构演示数据**，参数、价格和售后规则需要核验后才能用于真实商品问答。
 
+第四周已整理商品专用提示词，统一角色、当前商品、检索时机、资料缺失及引用规则，并将正式商品工具改名为 `retrieve_product_docs`。实现与手动测试见[第四周记录](docs/Week4_Product_RAG_MVP.md)。
+
 ## 1. 安装项目环境
 
 需要 Python 3.11 及以上、[uv](https://docs.astral.sh/uv/) 和已下载的 BGE-M3 模型。完整问答服务还需要 Redis，以及支持工具调用的 OpenAI 兼容聊天服务。
@@ -99,7 +101,7 @@ uv run python -m scripts.test_retrieval --filter-products --device cpu
 
 脚本显示前 5 条结果的商品、章节、来源和正文预览；基础验收全部通过时退出码为 0。单商品问题检查首条结果的商品归属，对比问题检查是否同时召回两个目标商品；章节命中另作诊断。
 
-现有样例基础召回为 3/3。开启过滤后，Pro 的核心卖点和核心参数分别进入第 4、5 条。脚本过滤使用测试用例中的已知商品 ID；正式后端 `retrieve_docs` 则使用 State 中的 `product_id` 过滤。
+现有样例基础召回为 3/3。开启过滤后，Pro 的核心卖点和核心参数分别进入第 4、5 条。脚本过滤使用测试用例中的已知商品 ID；正式后端 `retrieve_product_docs` 则使用 State 中的 `product_id` 过滤。
 
 ## 5. 启动问答服务
 
@@ -169,7 +171,7 @@ uv run streamlit run app.py
         → 按 session_id 与 product_id 选择 thread_id，读取 SQLite 图状态
         → 无历史的首轮可使用 Redis 答案缓存，有历史则跳过缓存
         → LangGraph 的 llm_call：聊天模型决定是否调用工具
-        → tool_node / retrieve_docs
+        → tool_node / retrieve_product_docs
         → 本地 BGE-M3 将检索问题编码为向量
         → Chroma products 按当前商品过滤，检索前 5 个 Chunk（无商品时全库）
         → 为文本添加引用编号，并生成 Citation 对象
@@ -196,9 +198,9 @@ uv run ruff format --check .
 RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_agent.py -q
 ```
 
-最后一条命令包含真实问答、商品状态和商品过滤三项测试，使用随机问题和独立会话，检查工具调用、引用、Redis 历史、缓存以及商品切换状态，结束后清理本次测试数据。普通测试默认跳过它们；FastAPI 的 HTTP 请求可按第 5 节验收。
+最后一条命令包含真实问答、商品状态、商品过滤和商品提示词四项测试，使用随机问题和独立会话，检查工具调用、引用、Redis 历史、缓存、商品切换、资料缺失及备注记忆，结束后清理本次测试数据。普通测试默认跳过它们；FastAPI 的 HTTP 请求可按第 5 节及第四周记录验收。
 
-当前已完成独立项目环境、商品库及真实 BGE 检索。独立 `.venv` 使用 Python 3.11.15；172 项离线测试通过、3 项真实服务测试默认跳过，修改代码的 Ruff 检查和依赖兼容性检查通过。已移除与新版 PyMuPDF 底层库冲突的旧 PyMuPDFb，并同步依赖声明和锁文件。
+当前已完成独立项目环境、商品库及真实 BGE 检索。独立 `.venv` 使用 Python 3.11.15；188 项离线测试通过、4 项真实服务测试默认跳过，修改代码的 Ruff 检查通过。已移除与新版 PyMuPDF 底层库冲突的旧 PyMuPDFb，并同步依赖声明和锁文件。
 
 经典 RAG 入口、对话 Notebook、独立 CrewAI 示例和未使用的旧 schema 已删除；缓存集中在 `backend/cache.py`。`langchain-classic` 已从直接依赖中移除，但仍由 `langchain-community` 作为传递依赖安装，不代表项目仍保留经典问答代码。
 
@@ -212,6 +214,10 @@ RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_agent.py -q
 
 2026-10-15 进一步完成商品独立上下文与 SQLite 持久化：按会话和商品生成线程，切回商品恢复其原对话；检查点默认保存到 `data/checkpoints.sqlite`，替换了先前切换后重新开始的方案。答案缓存仅用于无历史的首轮，追问跳过缓存。172 项离线测试、三项真实 Agent 测试通过；实际 FastAPI 重启后，Pro 和普通版各自恢复了原来的备注，五次 HTTP 请求全部为 200。配置、文件职责及手动重启续聊步骤见[开发记录](docs/Product_Sessions_and_Checkpoints.md)。
 
+2026-10-16 完成第四周第一步：集中维护中文商品提示词，统一两阶段的当前商品、检索、缺失资料及引用规则，答案缓存加入提示词版本。183 项离线测试通过，新增真实提示词验收 1 项通过，确认已知参数有引用、未提供的 L2 容量不猜测且不附引用、身份和用户备注按角色及历史回答。工具改名留给下一步，详见[第四周记录](docs/Week4_Product_RAG_MVP.md)。
+
+2026-10-16 完成第四周第二步：正式工具更名为 `retrieve_product_docs`，同步描述、绑定、路由和提示词，版本升级到 `product_prompt_v2`；保留旧 SQLite 会话兼容。188 项离线测试通过，两项真实测试确认新工具调用、三个商品过滤、切回续聊、缺资料说明及备注记忆均正常，完成本周商品 RAG V0.1 后端验收。实现及手动命令见[第二步记录](docs/Week4_Product_RAG_MVP.md#第二步正式商品工具名称与描述已完成)。
+
 主要文件：
 
 | 文件或目录 | 职责 |
@@ -223,6 +229,7 @@ RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_agent.py -q
 | `backend/graph.py`、`backend/nodes.py` | 模型与工具的工作流 |
 | `backend/config.py`、`backend/embeddings.py` | 模型、商品库、Redis 配置与本地 BGE 加载 |
 | `backend/tools.py`、`citations.py` | 商品检索工具及引用处理 |
+| `prompts.py`、`backend/prompts.py` | 商品系统提示词、回答模板及后端统一导出 |
 | `backend/product_documents.py` | 商品字段校验和文本切分 |
 | `scripts/`、`data/products/` | 建库、检索脚本与商品文档 |
 | `app.py` | Streamlit 聊天入口 |

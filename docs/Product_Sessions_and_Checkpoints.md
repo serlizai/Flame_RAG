@@ -84,6 +84,8 @@ SQLite 的默认文件及 WAL/SHM 辅助文件已被现有 `/data/*` 忽略规�
 
 商品首轮缓存升级到 `flame:llm_cache_product_v3:`，全库首轮缓存升级到 `flame:llm_cache_v2:`。旧键不删除，按其原有过期设置处理。切回聊过的商品属于有历史的请求，会重新执行 Agent。
 
+2026-10-16 第四周第一步进一步在上述前缀后加入 `PROMPT_VERSION`，隔离不同提示词生成的答案；第二步工具改名后升级为 `product_prompt_v2`。会话线程及首轮缓存策略不变，详见[提示词与工具记录](Week4_Product_RAG_MVP.md)。
+
 ### 三种存储的分工
 
 | 存储 | 当前用途 |

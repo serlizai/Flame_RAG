@@ -62,7 +62,9 @@ def _graph(checkpointer):
             "messages": [
                 AIMessage(
                     content="",
-                    tool_calls=[{"name": "retrieve_docs", "args": {}, "id": "call"}],
+                    tool_calls=[
+                        {"name": "retrieve_product_docs", "args": {}, "id": "call"}
+                    ],
                 ),
                 ToolMessage(
                     content="持久化引用原文", artifact=[citation], tool_call_id="call"

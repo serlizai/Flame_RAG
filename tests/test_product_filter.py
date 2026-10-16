@@ -16,7 +16,10 @@ import pytest
 
 from backend.cache import PRODUCT_CACHE_KEY_PREFIX, RedisCache
 from backend.citation import Citation
+from backend.checkpoints import sqlite_checkpointer
 from backend.sessions import make_thread_config
+from backend.prompts import PROMPT_VERSION, build_system_prompt
+from backend.state import MessagesState
 
 
 class OfflineEmbeddings(Embeddings):
@@ -53,8 +56,11 @@ class RecordingModel:
         self.tool_inputs = []
         self.answer_inputs = []
         self.answer = "根据当前商品资料回答。[1]"
+        self.bound_tool_names = []
 
     def bind_tools(self, tools):
+        self.bound_tool_names = [tool.name for tool in tools]
+
         def invoke(messages):
             self.tool_inputs.append(messages)
             if isinstance(messages[-1], HumanMessage):
@@ -75,7 +81,7 @@ def tool_call(query="这款支持无线充电吗？", **kwargs):
     """创建与真实模型输出一致的工具调用结构。"""
     return {
         "type": "tool_call",
-        "name": "retrieve_docs",
+        "name": "retrieve_product_docs",
         "id": uuid.uuid4().hex,
         "args": {"query": query, **kwargs},
     }
@@ -150,7 +156,9 @@ def product_agent(tmp_path, monkeypatch):
 def test_real_chroma_limits_results_to_selected_product(
     product_agent, product_id, sources
 ):
-    result = product_agent.tools.retrieve_docs.invoke(tool_call(product_id=product_id))
+    result = product_agent.tools.retrieve_product_docs.invoke(
+        tool_call(product_id=product_id)
+    )
     assert {citation.source for citation in result.artifact} == sources
     if not sources:
         assert "暂未查询到" in result.content
@@ -159,8 +167,126 @@ def test_real_chroma_limits_results_to_selected_product(
 
 
 def test_model_can_only_supply_search_query(product_agent):
-    schema = product_agent.tools.retrieve_docs.tool_call_schema.model_json_schema()
+    schema = (
+        product_agent.tools.retrieve_product_docs.tool_call_schema.model_json_schema()
+    )
     assert set(schema["properties"]) == {"query"}
+
+
+def test_model_is_bound_only_to_the_new_product_tool(product_agent):
+    assert product_agent.model.bound_tool_names == ["retrieve_product_docs"]
+    assert set(product_agent.nodes.tools_by_name) == {"retrieve_product_docs"}
+    assert not hasattr(product_agent.tools, "retrieve_docs")
+
+
+def test_legacy_pending_call_uses_new_tool_and_state_filter(product_agent):
+    """旧检查点中未执行的调用也要使用 State 商品过滤，不能扩大范围。"""
+    call = tool_call(product_id="vivo_x500_pro_max")
+    call["name"] = "retrieve_docs"
+    state = {
+        "product_id": "vivo_x500_pro",
+        "messages": [
+            HumanMessage(content="这款呢？"),
+            AIMessage(content="", tool_calls=[call]),
+        ],
+    }
+    result = product_agent.nodes.tool_node(state)
+    assert result["messages"][0].name == "retrieve_product_docs"
+    assert {c.source for c in result["citations"]} == {"x500_pro.md"}
+    assert call["name"] == "retrieve_docs"
+
+
+def test_sqlite_legacy_history_can_continue_with_new_tool(
+    product_agent, tmp_path, monkeypatch
+):
+    """保存真实旧格式检查点，续聊时仅转换模型输入，原历史不改写。"""
+    old_call = {
+        "id": "legacy-call",
+        "name": "retrieve_docs",
+        "args": {"query": "旧问题"},
+    }
+    raw_call = {
+        "id": "legacy-call",
+        "type": "function",
+        "function": {"name": "retrieve_docs", "arguments": '{"query":"旧问题"}'},
+    }
+    citation = Citation(1, "vivo X500 Pro, FAQ", "旧商品资料", "x500_pro.md")
+    old_messages = [
+        HumanMessage(content="旧问题"),
+        AIMessage(
+            content="",
+            tool_calls=[old_call],
+            additional_kwargs={"tool_calls": [raw_call]},
+        ),
+        ToolMessage(
+            content="[1] 旧商品资料",
+            artifact=[citation],
+            name="retrieve_docs",
+            tool_call_id="legacy-call",
+        ),
+        AIMessage(content="旧回答。[1]"),
+    ]
+    config = make_thread_config("legacy-session", "vivo_x500_pro")
+    with sqlite_checkpointer(tmp_path / "legacy.sqlite") as saver:
+        graph = product_agent.graph.agent_builder_graph(MessagesState).compile(
+            checkpointer=saver
+        )
+        graph.update_state(
+            config,
+            {
+                "messages": old_messages,
+                "product_id": "vivo_x500_pro",
+                "citations": [citation],
+                "llm_calls": 2,
+            },
+            as_node="final_answer",
+        )
+    # 重新打开数据库，确保兼容的是恢复后的检查点数据。
+    with sqlite_checkpointer(tmp_path / "legacy.sqlite") as saver:
+        graph = product_agent.graph.agent_builder_graph(MessagesState).compile(
+            checkpointer=saver
+        )
+        monkeypatch.setattr(product_agent.retrieval, "agent", graph)
+        product_agent.retrieval.agent_invoke(
+            "继续查询这款的功能", "legacy-session", "vivo_x500_pro"
+        )
+        for inputs in (
+            product_agent.model.tool_inputs[0],
+            product_agent.model.answer_inputs[-1],
+        ):
+            old_ai = next(
+                m for m in inputs if isinstance(m, AIMessage) and m.tool_calls
+            )
+            old_tool = next(m for m in inputs if isinstance(m, ToolMessage))
+            assert old_ai.tool_calls[0]["name"] == "retrieve_product_docs"
+            assert (
+                old_ai.additional_kwargs["tool_calls"][0]["function"]["name"]
+                == "retrieve_product_docs"
+            )
+            assert old_tool.name == "retrieve_product_docs"
+        saved = graph.get_state(config).values["messages"]
+        assert saved[1].tool_calls[0]["name"] == "retrieve_docs"
+        assert (
+            saved[1].additional_kwargs["tool_calls"][0]["function"]["name"]
+            == "retrieve_docs"
+        )
+        assert saved[2].name == "retrieve_docs"
+        assert any(
+            isinstance(m, ToolMessage) and m.name == "retrieve_product_docs"
+            for m in saved[4:]
+        )
+
+
+@pytest.mark.parametrize("product_id", [None, "vivo_x500", "vivo_x500_pro"])
+def test_both_model_phases_receive_the_current_product_prompt(
+    product_agent, product_id
+):
+    """检索决策和最终回答必须使用相同的商品身份及集中提示词。"""
+    product_agent.retrieval.agent_invoke("这款支持什么？", "prompt-phases", product_id)
+    name = {"vivo_x500": "vivo X500", "vivo_x500_pro": "vivo X500 Pro"}.get(product_id)
+    expected = build_system_prompt(name, product_id)
+    assert product_agent.model.tool_inputs[0][0].content == expected
+    assert product_agent.model.answer_inputs[-1][0].content == expected
 
 
 def test_tool_node_overrides_model_supplied_product_and_number(product_agent):
@@ -297,3 +423,33 @@ def test_unfiltered_product_cache_is_not_reused(product_agent):
     product_agent.retrieval.agent_invoke(query, "new-cache-version", "vivo_x500_pro")
     assert product_agent.model.answer_inputs
     assert cache.values[old_key] == "旧的未过滤答案"
+
+
+@pytest.mark.parametrize("product_id", [None, "vivo_x500_pro"])
+def test_old_prompt_answer_is_not_returned_from_cache(product_agent, product_id):
+    """旧缓存即使可解析，也必须执行使用新提示词的正式工作流。"""
+    query = "同一个商品问题"
+    cache = product_agent.cache
+    new_key = cache.make_cache_key(query, product_id)
+    old_key = new_key.replace(f"{PROMPT_VERSION}:", "")
+    cache.values[old_key] = '{"answer":"旧提示词生成的答案","citations":[]}'
+    answer, _, _ = product_agent.retrieval.agent_invoke(query, "new-prompt", product_id)
+    assert answer != "旧提示词生成的答案"
+    assert product_agent.model.answer_inputs
+    assert new_key in cache.values
+    assert cache.values[old_key] == '{"answer":"旧提示词生成的答案","citations":[]}'
+
+
+@pytest.mark.parametrize("product_id", [None, "vivo_x500_pro"])
+def test_first_step_prompt_cache_is_not_reused_after_rename(product_agent, product_id):
+    query = "这款有什么功能？"
+    cache = product_agent.cache
+    new_key = cache.make_cache_key(query, product_id)
+    old_key = new_key.replace(f"{PROMPT_VERSION}:", "product_prompt_v1:")
+    cache.values[old_key] = '{"answer":"第一步的缓存答案","citations":[]}'
+    answer, _, _ = product_agent.retrieval.agent_invoke(
+        query, "renamed-tool", product_id
+    )
+    assert answer != "第一步的缓存答案"
+    assert product_agent.model.bound_tool_names == ["retrieve_product_docs"]
+    assert product_agent.model.answer_inputs

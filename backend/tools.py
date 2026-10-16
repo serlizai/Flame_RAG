@@ -9,15 +9,19 @@ from langchain.tools import InjectedToolArg, tool
 
 
 @tool(response_format="content_and_artifact")
-def retrieve_docs(
+def retrieve_product_docs(
     query: str,
     product_id: Annotated[str | None, InjectedToolArg] = None,
     citation_start: Annotated[int, InjectedToolArg] = 1,
 ):
-    """根据语义相似度从商品知识库检索相关文档，并返回带编号的文本和引用。
+    """用于查询当前商品的功能、参数说明、特点、使用方法、FAQ 和商品知识。
+
+    涉及商品事实且已有资料不足时调用；价格或售后问题可查文档中的说明。
+    当前商品由后端确定，未选商品时查询整个商品库。返回带引用编号的原文，
+    只用于支持原文明示的事实，未提供所问信息时应说明暂未查询到。
 
     参数：
-        query：用于语义检索的完整用户问题，宜使用自然语言句子。
+        query：待查询的具体商品问题，保留用户关心的型号、功能或参数。
         product_id：由工具节点从 State 注入，模型不能选择检索商品。
         citation_start：由工具节点注入，避免连续检索的引用编号重复。
     """

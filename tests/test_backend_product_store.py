@@ -76,10 +76,10 @@ def test_backend_tool_reads_product_collection_from_project_root(
     tools = load_module(
         "flame_product_tools_test", source_root / "backend" / "tools.py", monkeypatch
     )
-    result = tools.retrieve_docs.invoke(
+    result = tools.retrieve_product_docs.invoke(
         {
             "type": "tool_call",
-            "name": "retrieve_docs",
+            "name": "retrieve_product_docs",
             "id": "product-retrieval",
             "args": {"query": "X500 Pro 有什么卖点？"},
         }

@@ -6,9 +6,11 @@ import json
 import redis
 from langchain_community.chat_message_histories import RedisChatMessageHistory
 
+from backend.prompts import PROMPT_VERSION
+
 # 只保存无历史的首轮回答，不复用旧版本中可能依赖聊天历史的答案。
-CACHE_KEY_PREFIX = "flame:llm_cache_v2:"
-PRODUCT_CACHE_KEY_PREFIX = "flame:llm_cache_product_v3:"
+CACHE_KEY_PREFIX = f"flame:llm_cache_v2:{PROMPT_VERSION}:"
+PRODUCT_CACHE_KEY_PREFIX = f"flame:llm_cache_product_v3:{PROMPT_VERSION}:"
 
 
 class RedisCache:

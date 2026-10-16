@@ -18,7 +18,7 @@ from eval.metrics import (
     recall_confidence_interval,
 )
 
-# 与 backend.tools.retrieve_docs 中的商品检索配置保持一致。
+# 与 backend.tools.retrieve_product_docs 中的商品检索配置保持一致。
 RETRIEVER_SEARCH_TYPE = "similarity"
 RETRIEVER_SEARCH_KWARGS = {"k": 5}
 

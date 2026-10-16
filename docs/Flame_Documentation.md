@@ -106,8 +106,8 @@ upsert reproducible IDs and remove obsolete managed records after the new write
 succeeds. Other records, collections, and files are preserved.
 
 The backend now opens `product_vector_store` with the product database path and
-`collection_name="products"`. The existing `retrieve_docs` tool queries this
-store and preserves product citations. If you build to a custom directory with
+`collection_name="products"`. The `retrieve_product_docs` tool queries this
+store, filters by the current product ID, and preserves product citations. If you build to a custom directory with
 `--persist-directory`, update the backend path to match it.
 
 The configuration and tool are tested with real Chroma and offline embedding

@@ -4,18 +4,52 @@ from dataclasses import asdict
 from langchain.messages import SystemMessage, ToolMessage, AIMessage, HumanMessage
 from backend.state import MessagesState
 from typing import Literal
-from backend.tools import retrieve_docs
+from backend.tools import retrieve_product_docs
 from backend.config import model
 from backend.citation import Citation, resolve_answer_citations
-from backend.prompts import SYSTEM_PROMPT, QA_PROMPT
+from backend.prompts import QA_PROMPT, build_system_prompt
 from backend.products import load_products
 
 
 # 定义模型可调用的工具
 # --------------
-tools = [retrieve_docs]
+tools = [retrieve_product_docs]
 tools_by_name = {tool.name: tool for tool in tools}
 model_with_tools = model.bind_tools(tools)
+
+# 旧版会话可能保存了尚未执行的旧名称调用，模型只绑定上面的新工具。
+_LEGACY_RETRIEVAL_TOOL_NAME = "retrieve_docs"
+
+
+def _messages_for_model(messages):
+    """复制并统一旧会话中的工具名称，SQLite 原始历史继续保留。"""
+    converted = []
+    for message in messages:
+        if isinstance(message, AIMessage) and (
+            any(
+                call["name"] == _LEGACY_RETRIEVAL_TOOL_NAME
+                for call in message.tool_calls
+            )
+            or any(
+                call.get("function", {}).get("name") == _LEGACY_RETRIEVAL_TOOL_NAME
+                for call in message.additional_kwargs.get("tool_calls", [])
+            )
+        ):
+            message = message.model_copy(deep=True)
+            for call in message.tool_calls:
+                if call["name"] == _LEGACY_RETRIEVAL_TOOL_NAME:
+                    call["name"] = retrieve_product_docs.name
+            # 同步保留在附加字段中的原始服务商格式，避免混入旧名称。
+            for call in message.additional_kwargs.get("tool_calls", []):
+                if call.get("function", {}).get("name") == _LEGACY_RETRIEVAL_TOOL_NAME:
+                    call["function"]["name"] = retrieve_product_docs.name
+        elif (
+            isinstance(message, ToolMessage)
+            and message.name == _LEGACY_RETRIEVAL_TOOL_NAME
+        ):
+            message = message.model_copy(update={"name": retrieve_product_docs.name})
+        converted.append(message)
+    return converted
 
 
 def _context_citations(messages):
@@ -38,16 +72,12 @@ def _context_citations(messages):
 
 def _system_message(state: dict):
     """补充当前商品身份，使模型能理解“这款”，检索范围仍由后端控制。"""
-    prompt = SYSTEM_PROMPT
     product_id = state.get("product_id")
     if product_id is not None:
         product = load_products()[product_id]
-        prompt += (
-            f"\n当前商品：{product.name}（product_id={product.id}）。"
-            "本轮问题中的‘这款’、‘它’均指当前商品。"
-            "查询商品资料时调用 retrieve_docs；工具只检索当前商品，"
-            "不得使用其他型号的资料代替。"
-        )
+        prompt = build_system_prompt(product.name, product.id)
+    else:
+        prompt = build_system_prompt()
     return SystemMessage(content=prompt)
 
 
@@ -58,7 +88,9 @@ def llm_call(state: dict):
 
     return {
         "messages": [
-            model_with_tools.invoke([_system_message(state)] + state["messages"])
+            model_with_tools.invoke(
+                [_system_message(state)] + _messages_for_model(state["messages"])
+            )
         ],
         "llm_calls": state.get("llm_calls", 0) + 1,
     }
@@ -75,9 +107,11 @@ def tool_node(state: dict):
         max((c.number for c in _context_citations(state["messages"])), default=0) + 1
     )
     for tool_call in state["messages"][-1].tool_calls:
+        if tool_call["name"] == _LEGACY_RETRIEVAL_TOOL_NAME:
+            tool_call = {**tool_call, "name": retrieve_product_docs.name}
         tool = tools_by_name[tool_call["name"]]
         # 覆盖模型可能提交的同名参数，商品范围只信任服务端 State。
-        if tool.name == retrieve_docs.name:
+        if tool.name == retrieve_product_docs.name:
             tool_call = {
                 **tool_call,
                 "args": {
@@ -111,7 +145,9 @@ def final_answer(state: dict):
     qa_prompt = QA_PROMPT.format(context=context, input=question)
 
     result = model.invoke(
-        [_system_message(state)] + messages + [HumanMessage(content=qa_prompt)]
+        [_system_message(state)]
+        + _messages_for_model(messages)
+        + [HumanMessage(content=qa_prompt)]
     )
 
     resolved_answer, kept_citations = resolve_answer_citations(

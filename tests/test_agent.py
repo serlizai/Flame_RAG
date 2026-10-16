@@ -45,7 +45,7 @@ def test_agent_answers_a_document_question():
             message for message in state["messages"] if isinstance(message, ToolMessage)
         ]
         assert any(
-            message.name == "retrieve_docs" and message.artifact
+            message.name == "retrieve_product_docs" and message.artifact
             for message in tool_messages
         ), "真实 Agent 必须执行商品检索工具。"
 
@@ -177,7 +177,7 @@ def test_agent_filters_current_product_for_implicit_question():
             active_messages = state["messages"]
             tool_messages = [m for m in active_messages if isinstance(m, ToolMessage)]
             assert tool_messages and all(
-                m.name == "retrieve_docs" for m in tool_messages
+                m.name == "retrieve_product_docs" for m in tool_messages
             )
             for message in tool_messages:
                 assert message.artifact
@@ -217,3 +217,73 @@ def test_agent_filters_current_product_for_implicit_question():
             cache.redis_client.delete(cache.make_cache_key(query, product_id))
             checkpointer.delete_thread(make_thread_id(session_id, product_id))
         cache.get_chat_history(session_id).clear()
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_AGENT_INTEGRATION") != "1",
+    reason="设置 RUN_AGENT_INTEGRATION=1 后运行真实商品提示词验收。",
+)
+def test_agent_product_prompt_handles_identity_facts_unknown_and_memory():
+    """验收角色、商品事实、资料缺失和聊天记忆，避免只检查提示词文字。"""
+    from langchain_core.messages import ToolMessage
+
+    from backend.config import cache, checkpointer
+    from backend.retrieval import agent, agent_invoke
+
+    identifier = uuid.uuid4().hex
+    identity_session = f"flame-prompt-identity-{identifier}"
+    product_session = f"flame-prompt-product-{identifier}"
+    marker = f"NOTE-{identifier[:12]}"
+    identity_query = f"你是谁？（验收 {identifier}，无需重复编号。）"
+    known_query = (
+        f"我的备注代号是 {marker}，请记住。这款支持无线充电吗，最高功率是多少？"
+        "请依据商品知识库回答并附引用。"
+    )
+    unknown_query = "这款手机处理器的 L2 缓存容量具体是多少？请查询商品资料。"
+    memory_query = "我刚才给这款商品设定的备注代号是什么？只回答完整代号。"
+    config = make_thread_config(product_session, "vivo_x500_pro")
+
+    try:
+        identity, identity_citations, _ = agent_invoke(identity_query, identity_session)
+        assert "Flame" in identity and not identity_citations
+        identity_state = agent.get_state(make_thread_config(identity_session)).values
+        assert not any(isinstance(m, ToolMessage) for m in identity_state["messages"])
+
+        known, known_citations, _ = agent_invoke(
+            known_query, product_session, "vivo_x500_pro"
+        )
+        assert "50" in known and known_citations
+        assert {c.source for c in known_citations} == {"x500_pro.md"}
+        assert any(
+            isinstance(m, ToolMessage) and m.name == "retrieve_product_docs"
+            for m in agent.get_state(config).values["messages"]
+        )
+
+        unknown, unknown_citations, _ = agent_invoke(
+            unknown_query, product_session, "vivo_x500_pro"
+        )
+        assert "暂未查询到相关信息" in unknown
+        assert not unknown_citations, (
+            f"未提供 L2 容量的商品原文不能作为该结论的引用。实际回答：{unknown}"
+        )
+
+        memory, memory_citations, _ = agent_invoke(
+            memory_query, product_session, "vivo_x500_pro"
+        )
+        assert marker in memory and not memory_citations
+        assert len(cache.get_chat_history(product_session).messages) == 6
+        print(
+            f"真实提示词验收通过：身份={identity}；已知参数={known}；资料缺失={unknown}；备注={memory}"
+        )
+    finally:
+        for query, product_id in (
+            (identity_query, None),
+            (known_query, "vivo_x500_pro"),
+        ):
+            cache.redis_client.delete(cache.make_cache_key(query, product_id))
+        for session_id, product_id in (
+            (identity_session, None),
+            (product_session, "vivo_x500_pro"),
+        ):
+            cache.get_chat_history(session_id).clear()
+            checkpointer.delete_thread(make_thread_id(session_id, product_id))

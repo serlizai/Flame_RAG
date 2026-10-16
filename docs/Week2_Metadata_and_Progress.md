@@ -2,6 +2,8 @@
 
 本轮全部修改的简明说明见 [Flame 开发记录](Flame_Development_Notes.md)。
 
+本文记录第二周实现；其中工具原名 `retrieve_docs`，第四周已正式改为 `retrieve_product_docs`，当前调用方式见[第四周记录](Week4_Product_RAG_MVP.md)。
+
 按 [圣火文档](../圣火文档.md) 的第二周第 2～5 小节实现商品 Metadata、建库脚本、后端商品库配置与基础检索验收。
 检查范围为当前 Flame 仓库；不将其他项目或此前手动运行的服务视为已经验收。
 

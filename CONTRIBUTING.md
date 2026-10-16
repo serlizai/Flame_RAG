@@ -117,10 +117,10 @@ product files removed from the input directory. Unmanaged records, other
 collections, and unrelated files are preserved. An empty or invalid product
 directory is rejected before database writes.
 
-The backend now opens the same product database and collection. The existing
-`retrieve_docs` tool queries `product_vector_store`; its name and the graph
-workflow remain unchanged at this stage. Custom builder database paths must also
-be applied in `backend/config.py`.
+The backend opens the same product database and collection. The
+`retrieve_product_docs` tool queries `product_vector_store`, using the current
+product ID from graph state as a metadata filter. The graph workflow remains
+unchanged. Custom builder database paths must also be applied in `backend/config.py`.
 
 Run the week-two basic retrieval checks without a chat API or Redis:
 
