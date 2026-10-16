@@ -11,6 +11,84 @@ from backend.sessions import make_thread_config, make_thread_id
 
 @pytest.mark.skipif(
     os.getenv("RUN_AGENT_INTEGRATION") != "1",
+    reason="设置 RUN_AGENT_INTEGRATION=1 后运行生活用品真实 HTTP 验收。",
+)
+def test_api_answers_household_product_questions():
+    """经真实 FastAPI 路由调用 Agent，验证跨品类身份、引用及聊天记录。"""
+    from fastapi.testclient import TestClient
+    from langchain_core.messages import ToolMessage
+
+    from backend.config import cache, checkpointer
+    from backend.main import app
+    from backend.retrieval import agent
+
+    identifier = uuid.uuid4().hex
+    session_id = f"flame-household-test-{identifier}"
+    cases = [
+        (
+            "flame_kettle_k1",
+            "kettle_k1.md",
+            "这款的容量和额定功率是多少？",
+            ("1.7", "1800"),
+        ),
+        (
+            "flame_thermos_t1",
+            "thermos_t1.md",
+            "这款的容量和内胆材质是什么？",
+            ("500", "316L"),
+        ),
+        (
+            "flame_storage_box_s1",
+            "storage_box_s1.md",
+            "这款的容量和单箱额定载重是多少？",
+            ("45", "10"),
+        ),
+    ]
+    queries = []
+    try:
+        with TestClient(app) as client:
+            for product_id, source, question, facts in cases:
+                query = f"{question}请查资料并附引用。（验收编号 {identifier}，无需重复编号。）"
+                queries.append((query, product_id))
+                response = client.post(
+                    "/query",
+                    json={
+                        "session_id": session_id,
+                        "product_id": product_id,
+                        "message": query,
+                    },
+                )
+                assert response.status_code == 200, response.text
+                payload = response.json()
+                assert payload["product_id"] == product_id
+                assert payload["session_id"] == session_id
+                assert all(fact in payload["answer"] for fact in facts)
+                assert payload["citations"]
+                assert {citation["source"] for citation in payload["citations"]} == {
+                    source
+                }
+                messages = agent.get_state(
+                    make_thread_config(session_id, product_id)
+                ).values["messages"]
+                results = [
+                    message for message in messages if isinstance(message, ToolMessage)
+                ]
+                assert results and all(
+                    message.name == "retrieve_product_docs" for message in results
+                )
+                print(
+                    f"真实 HTTP 生活用品验收通过：{product_id}；回答：{payload['answer']}"
+                )
+        assert len(cache.get_chat_history(session_id).messages) == 2 * len(cases)
+    finally:
+        for query, product_id in queries:
+            cache.redis_client.delete(cache.make_cache_key(query, product_id))
+            checkpointer.delete_thread(make_thread_id(session_id, product_id))
+        cache.get_chat_history(session_id).clear()
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_AGENT_INTEGRATION") != "1",
     reason="设置 RUN_AGENT_INTEGRATION=1 后运行真实 Agent 链路测试。",
 )
 def test_agent_answers_a_document_question():

@@ -2,6 +2,7 @@
 
 SKU: 100001
 product_id: vivo_x500_pro
+category: smartphone
 品牌: vivo
 型号: X500 Pro
 

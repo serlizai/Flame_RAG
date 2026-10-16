@@ -73,10 +73,12 @@ schemas have been removed. The remaining PDF notebook is an ingestion utility.
 
 ## Product document preparation
 
-Product metadata is read from each Markdown file's title, `SKU`, and `product_id`
+Product metadata is read from each Markdown file's title, `SKU`, `product_id`, and `category`
 header. Every chunk keeps `product_id`, `sku_id`, `product_name`, `category`, and
 `source`, plus its section, sequence number, and reproducible chunk ID. SKU values
-remain strings. The default category is `smartphone`.
+remain strings. Categories are read per document; only legacy documents without
+the field default to `smartphone`. Explicit `--category` overrides the category
+for every document. Keep the JSON catalog and Markdown identities/categories consistent.
 
 ```bash
 uv run python -m scripts.prepare_product_chunks

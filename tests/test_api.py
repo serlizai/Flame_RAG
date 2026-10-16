@@ -5,6 +5,7 @@ import pytest
 
 from backend import main
 from backend.citation import Citation
+from backend.products import load_products
 
 
 @pytest.fixture
@@ -69,6 +70,17 @@ def test_get_also_accepts_current_product(api_client):
     )
     assert response.status_code == 200
     assert calls == [("功能有哪些？", None, "vivo_x500")]
+
+
+@pytest.mark.parametrize("product_id", list(load_products()))
+def test_post_accepts_every_catalog_product(api_client, product_id):
+    client, calls = api_client
+    response = client.post(
+        "/query", json={"message": "这款有什么特点？", "product_id": product_id}
+    )
+    assert response.status_code == 200
+    assert response.json()["product_id"] == product_id
+    assert calls == [("这款有什么特点？", None, product_id)]
 
 
 @pytest.mark.parametrize("method", ["get", "post"])

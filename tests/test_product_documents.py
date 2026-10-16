@@ -12,6 +12,7 @@ from backend.product_documents import (
     split_product_documents,
 )
 from citations import annotate_documents_for_citation
+from backend.products import load_products
 from scripts.prepare_product_chunks import main
 import settings
 
@@ -38,6 +39,32 @@ def test_reads_identity_from_header_and_preserves_leading_zero_in_sku(tmp_path):
         "category": "smartphone",
         "source": "sample.md",
     }
+
+
+def test_category_comes_from_each_header_and_can_be_explicitly_overridden(tmp_path):
+    path = tmp_path / "sample.md"
+    write_product(path)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "品牌: Sample", "category: drinkware\n品牌: Sample"
+        ),
+        encoding="utf-8",
+    )
+    assert load_product_document(path).metadata["category"] == "drinkware"
+    assert (
+        load_product_document(path, category="custom").metadata["category"] == "custom"
+    )
+
+
+@pytest.mark.parametrize(
+    "field", ["category: \n", "category: lighting\ncategory: drinkware\n"]
+)
+def test_rejects_empty_or_duplicate_header_category(tmp_path, field):
+    path = tmp_path / "sample.md"
+    write_product(path)
+    path.write_text(field + path.read_text(encoding="utf-8"), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_product_document(path)
 
 
 @pytest.mark.parametrize(
@@ -75,7 +102,26 @@ def test_rejects_identifiers_shared_by_two_product_files(tmp_path, key):
 def test_real_product_chunks_keep_their_own_metadata_and_section():
     products = load_product_documents(DEFAULT_PRODUCTS_DIRECTORY)
     chunks = split_product_documents(products)
-    assert len(products) == 3
+    catalog = load_products()
+    assert len(products) == len(catalog) == 10
+    assert {product.metadata["product_id"] for product in products} == set(catalog)
+    for document in products:
+        metadata = document.metadata
+        product = catalog[metadata["product_id"]]
+        assert (metadata["sku_id"], metadata["product_name"], metadata["category"]) == (
+            product.sku,
+            product.name,
+            product.category,
+        )
+        for section in (
+            "商品简介",
+            "核心参数",
+            "核心卖点",
+            "使用说明",
+            "FAQ",
+            "售后说明",
+        ):
+            assert f"## {section}\n" in document.page_content
     assert len(chunks) > len(products)
     assert len({chunk.metadata["chunk_id"] for chunk in chunks}) == len(chunks)
     expected = {

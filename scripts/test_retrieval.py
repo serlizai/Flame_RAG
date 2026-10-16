@@ -1,4 +1,4 @@
-"""使用真实本地 BGE 和商品库，验收第二周的三个检索问题。
+"""使用真实本地 BGE 和商品库，验收手机与生活用品的商品召回。
 
 在项目根目录执行：
     python -m scripts.test_retrieval
@@ -23,6 +23,18 @@ RETRIEVAL_CASES = (
         {"vivo_x500_pro", "vivo_x500_pro_max"},
         None,
     ),
+    ("vivo X500 标准版支持无线充电吗？", {"vivo_x500"}, "FAQ"),
+    ("Flame K1 电热水壶能调温和保温吗？", {"flame_kettle_k1"}, "FAQ"),
+    ("Flame A1 空气炸锅的温度范围是多少？", {"flame_air_fryer_a1"}, "核心参数"),
+    ("Flame R1 电饭煲是 IH 加热吗？", {"flame_rice_cooker_r1"}, "FAQ"),
+    ("Flame L1 LED 台灯有电池吗，可以拔线用吗？", {"flame_desk_lamp_l1"}, "FAQ"),
+    (
+        "Flame F1 空气循环扇有几档风速？",
+        {"flame_circulation_fan_f1"},
+        "FAQ",
+    ),
+    ("Flame T1 保温杯的容量和内胆材质是什么？", {"flame_thermos_t1"}, "FAQ"),
+    ("Flame S1 折叠收纳箱可以堆几层、装多重？", {"flame_storage_box_s1"}, "FAQ"),
 )
 
 

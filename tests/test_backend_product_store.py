@@ -8,6 +8,7 @@ from langchain import chat_models
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
+import pytest
 
 from backend import embeddings as embedding_config
 from backend.product_documents import (
@@ -38,8 +39,9 @@ def load_module(name, path, monkeypatch):
     return module
 
 
+@pytest.mark.parametrize("product_id", ["vivo_x500_pro", "flame_kettle_k1"])
 def test_backend_tool_reads_product_collection_from_project_root(
-    tmp_path, monkeypatch, request
+    tmp_path, monkeypatch, request, product_id
 ):
     source_root = Path(__file__).resolve().parents[1]
     embeddings = OfflineEmbeddings()
@@ -81,12 +83,21 @@ def test_backend_tool_reads_product_collection_from_project_root(
             "type": "tool_call",
             "name": "retrieve_product_docs",
             "id": "product-retrieval",
-            "args": {"query": "X500 Pro 有什么卖点？"},
+            "args": {"query": "这款有什么卖点？", "product_id": product_id},
         }
     )
-    sources = {chunk.metadata["source"] for chunk in chunks}
+    sources = {
+        chunk.metadata["source"]
+        for chunk in chunks
+        if chunk.metadata["product_id"] == product_id
+    }
+    product_name = next(
+        chunk.metadata["product_name"]
+        for chunk in chunks
+        if chunk.metadata["product_id"] == product_id
+    )
     assert len(result.artifact) == 5
     assert all(citation.source in sources for citation in result.artifact)
-    assert all(citation.label.startswith("vivo X500") for citation in result.artifact)
+    assert all(citation.label.startswith(product_name) for citation in result.artifact)
     assert all(citation.snippet in result.content for citation in result.artifact)
     assert "其他语料" not in result.content

@@ -2,7 +2,7 @@
 
 Flame 使用本地 BGE-M3 和 Chroma 检索商品资料，再通过 LangGraph 与聊天模型生成带来源引用的回答。项目仅保留 LangGraph Agent 问答架构，提供 FastAPI 接口和 Streamlit 聊天界面。
 
-当前完成第二周的商品文档、Metadata、建库与基础检索，以及第三周的商品表、API 输入、State 和正式商品过滤。API 指定商品后，可以直接问“这款”，检索仅返回当前商品的资料；各商品分别保存上下文，SQLite 支持重启后续聊。第三周进度见[当前商品上下文记录](docs/Week3_Product_Context.md)，会话实现见[检查点开发记录](docs/Product_Sessions_and_Checkpoints.md)。三个 vivo X500 文档为**虚构演示数据**，参数、价格和售后规则需要核验后才能用于真实商品问答。
+当前完成第二周的商品文档、Metadata、建库与基础检索，以及第三周的商品表、API 输入、State 和正式商品过滤。API 指定商品后，可以直接问“这款”，检索仅返回当前商品的资料；各商品分别保存上下文，SQLite 支持重启后续聊。第三周进度见[当前商品上下文记录](docs/Week3_Product_Context.md)，会话实现见[检查点开发记录](docs/Product_Sessions_and_Checkpoints.md)。当前已扩充为 **10 个跨品类演示商品**，包括 3 款手机和 7 款生活用品；参数、价格和售后规则需要核验后才能用于真实商品问答。扩充过程见[十商品开发记录](docs/Ten_Product_Catalog.md)。
 
 第四周已整理商品专用提示词，统一角色、当前商品、检索时机、资料缺失及引用规则，并将正式商品工具改名为 `retrieve_product_docs`。实现与手动测试见[第四周记录](docs/Week4_Product_RAG_MVP.md)。
 
@@ -57,12 +57,19 @@ CHECKPOINT_SQLITE_PATH=data/checkpoints.sqlite
 商品资料位于 `data/products/`：
 
 ```text
-x500.md            → vivo_x500          / SKU 100000
-x500_pro.md        → vivo_x500_pro      / SKU 100001
-x500_pro_max.md    → vivo_x500_pro_max  / SKU 100002
+x500.md             → vivo_x500                 / SKU 100000
+x500_pro.md         → vivo_x500_pro             / SKU 100001
+x500_pro_max.md     → vivo_x500_pro_max         / SKU 100002
+kettle_k1.md        → flame_kettle_k1           / SKU 200001
+air_fryer_a1.md     → flame_air_fryer_a1        / SKU 200002
+rice_cooker_r1.md   → flame_rice_cooker_r1      / SKU 200003
+desk_lamp_l1.md     → flame_desk_lamp_l1        / SKU 200004
+circulation_fan_f1.md → flame_circulation_fan_f1 / SKU 200005
+thermos_t1.md       → flame_thermos_t1          / SKU 200006
+storage_box_s1.md   → flame_storage_box_s1      / SKU 200007
 ```
 
-商品列表保存在 `data/products.json`，使用 `id`、`sku`、`name` 三个字段，与上述商品文档及 Chunk Metadata 的商品身份一致。API 使用商品表校验传入的商品 ID，State 和检索过滤使用同一身份。
+商品列表保存在 `data/products.json`，使用 `id`、`sku`、`name`、`category` 四个字段，与上述商品文档及 Chunk Metadata 一致。API 使用商品表校验传入的商品 ID，State 和检索过滤使用同一身份。每个 Markdown 头部增加 `category:`，分类覆盖 `smartphone`、`kitchen_appliance`、`lighting`、`home_appliance`、`drinkware`、`home_storage`。默认逐文档读取分类；`--category` 仅在需要统一覆盖所有商品分类时使用。旧文档和旧商品表省略分类时兼容 `smartphone`。
 
 每个文档包含商品信息，以及商品简介、核心参数、核心卖点、使用说明、FAQ、售后说明。先按二级章节拆分，再按最多 800 字符、重叠 100 字符切分；短章节不会强制重叠，不同章节不会拼在一起。
 
@@ -79,14 +86,14 @@ uv run python -m scripts.build_product_db --device cpu
 uv run python -m scripts.prepare_product_chunks
 ```
 
-建库直接读取 Markdown，无需先导出 JSONL。当前三个商品生成 7、7、8 个块，共 22 个 1024 维向量。修改文档后重新建库，脚本会更新记录并在新数据写入成功后删除过期的受管理块，保留其他来源记录和集合。
+建库直接读取 Markdown，无需先导出 JSONL。当前 10 个商品共生成 **71 个 1024 维向量**，Pro Max 为 8 个块，其余商品各 7 个。修改文档后重新建库，脚本会更新记录并在新数据写入成功后删除过期的受管理块，保留其他来源记录和集合。
 
 建库和检索测试只需要本地模型，无需聊天 API 或 Redis。若使用 `--persist-directory` 自定义建库路径，需同步调整后端商品库路径。
 
 ## 4. 测试商品检索
 
 ```bash
-# 基础验收：三个问题，不加商品过滤
+# 基础验收：11 个问题覆盖 10 个商品，不加商品过滤
 uv run python -m scripts.test_retrieval --device cpu
 
 # 使用测试用例指定的商品范围过滤
@@ -101,7 +108,7 @@ uv run python -m scripts.test_retrieval --filter-products --device cpu
 
 脚本显示前 5 条结果的商品、章节、来源和正文预览；基础验收全部通过时退出码为 0。单商品问题检查首条结果的商品归属，对比问题检查是否同时召回两个目标商品；章节命中另作诊断。
 
-现有样例基础召回为 3/3。开启过滤后，Pro 的核心卖点和核心参数分别进入第 4、5 条。脚本过滤使用测试用例中的已知商品 ID；正式后端 `retrieve_product_docs` 则使用 State 中的 `product_id` 过滤。
+现有样例在全库和商品过滤两种模式下均为 **11/11 通过**；章节命中仍单独诊断。脚本过滤使用测试用例中的已知商品 ID；正式后端 `retrieve_product_docs` 则使用 State 中的 `product_id` 过滤。
 
 ## 5. 启动问答服务
 
@@ -198,9 +205,9 @@ uv run ruff format --check .
 RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_agent.py -q
 ```
 
-最后一条命令包含真实问答、商品状态、商品过滤和商品提示词四项测试，使用随机问题和独立会话，检查工具调用、引用、Redis 历史、缓存、商品切换、资料缺失及备注记忆，结束后清理本次测试数据。普通测试默认跳过它们；FastAPI 的 HTTP 请求可按第 5 节及第四周记录验收。
+最后一条命令包含真实问答、商品状态、商品过滤、商品提示词和生活用品 HTTP 五项测试，使用随机问题和独立会话，检查工具调用、引用、Redis 历史、缓存、商品切换、资料缺失及备注记忆，结束后清理本次测试数据。普通测试默认跳过它们；FastAPI 的 HTTP 请求可按第 5 节及商品扩充记录验收。
 
-当前已完成独立项目环境、商品库及真实 BGE 检索。独立 `.venv` 使用 Python 3.11.15；188 项离线测试通过、4 项真实服务测试默认跳过，修改代码的 Ruff 检查通过。已移除与新版 PyMuPDF 底层库冲突的旧 PyMuPDFb，并同步依赖声明和锁文件。
+当前已完成独立项目环境、商品库及真实 BGE 检索。独立 `.venv` 使用 Python 3.11.15；206 项离线测试通过、5 项真实服务测试默认跳过，修改代码的 Ruff 检查通过。已移除与新版 PyMuPDF 底层库冲突的旧 PyMuPDFb，并同步依赖声明和锁文件。
 
 经典 RAG 入口、对话 Notebook、独立 CrewAI 示例和未使用的旧 schema 已删除；缓存集中在 `backend/cache.py`。`langchain-classic` 已从直接依赖中移除，但仍由 `langchain-community` 作为传递依赖安装，不代表项目仍保留经典问答代码。
 
@@ -217,6 +224,8 @@ RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_agent.py -q
 2026-10-16 完成第四周第一步：集中维护中文商品提示词，统一两阶段的当前商品、检索、缺失资料及引用规则，答案缓存加入提示词版本。183 项离线测试通过，新增真实提示词验收 1 项通过，确认已知参数有引用、未提供的 L2 容量不猜测且不附引用、身份和用户备注按角色及历史回答。工具改名留给下一步，详见[第四周记录](docs/Week4_Product_RAG_MVP.md)。
 
 2026-10-16 完成第四周第二步：正式工具更名为 `retrieve_product_docs`，同步描述、绑定、路由和提示词，版本升级到 `product_prompt_v2`；保留旧 SQLite 会话兼容。188 项离线测试通过，两项真实测试确认新工具调用、三个商品过滤、切回续聊、缺资料说明及备注记忆均正常，完成本周商品 RAG V0.1 后端验收。实现及手动命令见[第二步记录](docs/Week4_Product_RAG_MVP.md#第二步正式商品工具名称与描述已完成)。
+
+2026-10-16 扩充至十商品：新增七款生活用品，逐商品读取分类，JSON、Markdown、JSONL 和真实 Chroma 已同步为 10 个商品、71 个 Chunk。206 项离线测试通过，全库和过滤召回均为 11/11；新增真实生活用品 HTTP 测试通过，三次请求均返回正确参数及对应商品引用，详见[扩充记录](docs/Ten_Product_Catalog.md)。
 
 主要文件：
 

@@ -2,6 +2,8 @@
 
 本轮全部修改的简明说明见 [Flame 开发记录](Flame_Development_Notes.md)。
 
+下文保留第二周的三商品、22 个 Chunk 验收记录。2026-10-16 已扩充至 10 个跨品类商品、71 个 Chunk；现在逐文档读取 `category`，最新数据、测试与使用方法见[十商品扩充记录](Ten_Product_Catalog.md)。
+
 本文记录第二周实现；其中工具原名 `retrieve_docs`，第四周已正式改为 `retrieve_product_docs`，当前调用方式见[第四周记录](Week4_Product_RAG_MVP.md)。
 
 按 [圣火文档](../圣火文档.md) 的第二周第 2～5 小节实现商品 Metadata、建库脚本、后端商品库配置与基础检索验收。

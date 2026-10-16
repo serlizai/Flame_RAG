@@ -60,7 +60,10 @@ def main(argv=None):
     )
     parser.add_argument("--model-path", type=Path, help="Override BGE_M3_PATH")
     parser.add_argument("--device", help="Override EMBEDDING_DEVICE, e.g. cpu or mps")
-    parser.add_argument("--category", default="smartphone")
+    parser.add_argument(
+        "--category",
+        help="统一覆盖分类；省略时读取各文档 category，旧文档默认 smartphone",
+    )
     parser.add_argument("--chunk-size", type=int, default=800)
     parser.add_argument("--chunk-overlap", type=int, default=100)
     parser.add_argument(

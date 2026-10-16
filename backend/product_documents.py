@@ -21,11 +21,13 @@ REQUIRED_METADATA_KEYS = (
     "category",
     "source",
 )
-_FIELD_PATTERN = re.compile(r"^(SKU|product_id):[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+_FIELD_PATTERN = re.compile(
+    r"^(SKU|product_id|category):[ \t]*(.*?)[ \t]*$", re.MULTILINE
+)
 
 
-def load_product_document(path: Path, category: str = "smartphone") -> Document:
-    """从文档头部读取商品信息；SKU 保持字符串，不转换为数字。"""
+def load_product_document(path: Path, category: str | None = None) -> Document:
+    """逐商品读取头部分类；显式参数可统一覆盖，旧文档兼容手机分类。"""
     content = path.read_text(encoding="utf-8")
     header = re.split(r"^##[ \t]+", content, maxsplit=1, flags=re.MULTILINE)[0]
     title = re.search(r"^#[ \t]+(.+?)[ \t]*$", header, re.MULTILINE)
@@ -46,6 +48,10 @@ def load_product_document(path: Path, category: str = "smartphone") -> Document:
             raise ValueError(
                 f"{path.name}: missing or empty {key} in the product header."
             )
+    # 混合商品库优先使用各文档自己的分类，不再由命令行默认全部标成手机。
+    category = (
+        category if category is not None else fields.get("category", "smartphone")
+    )
     if not category.strip():
         raise ValueError("Product category must not be empty.")
 
@@ -63,7 +69,7 @@ def load_product_document(path: Path, category: str = "smartphone") -> Document:
 
 def load_product_documents(
     directory: Path = DEFAULT_PRODUCTS_DIRECTORY,
-    category: str = "smartphone",
+    category: str | None = None,
 ) -> list[Document]:
     """每个 Markdown 文件读取一个商品，并拒绝重复的商品 ID 或 SKU。"""
     paths = sorted(directory.glob("*.md"))

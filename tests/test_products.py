@@ -24,6 +24,26 @@ def test_catalog_keeps_sku_string_and_does_not_depend_on_current_directory(
     assert load_products(path)["sample"].sku == "001001"
 
 
+@pytest.mark.parametrize("category", ["", "  ", None, 123])
+def test_catalog_rejects_explicit_invalid_category(tmp_path, category):
+    path = tmp_path / "products.json"
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "sample",
+                    "sku": "001001",
+                    "name": "示例商品",
+                    "category": category,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="category"):
+        load_products(path)
+
+
 @pytest.mark.parametrize(
     "records",
     [

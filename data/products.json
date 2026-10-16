@@ -2,16 +2,61 @@
   {
     "id": "vivo_x500",
     "sku": "100000",
-    "name": "vivo X500"
+    "name": "vivo X500",
+    "category": "smartphone"
   },
   {
     "id": "vivo_x500_pro",
     "sku": "100001",
-    "name": "vivo X500 Pro"
+    "name": "vivo X500 Pro",
+    "category": "smartphone"
   },
   {
     "id": "vivo_x500_pro_max",
     "sku": "100002",
-    "name": "vivo X500 Pro Max"
+    "name": "vivo X500 Pro Max",
+    "category": "smartphone"
+  },
+  {
+    "id": "flame_kettle_k1",
+    "sku": "200001",
+    "name": "Flame K1 电热水壶",
+    "category": "kitchen_appliance"
+  },
+  {
+    "id": "flame_air_fryer_a1",
+    "sku": "200002",
+    "name": "Flame A1 空气炸锅",
+    "category": "kitchen_appliance"
+  },
+  {
+    "id": "flame_rice_cooker_r1",
+    "sku": "200003",
+    "name": "Flame R1 电饭煲",
+    "category": "kitchen_appliance"
+  },
+  {
+    "id": "flame_desk_lamp_l1",
+    "sku": "200004",
+    "name": "Flame L1 LED 台灯",
+    "category": "lighting"
+  },
+  {
+    "id": "flame_circulation_fan_f1",
+    "sku": "200005",
+    "name": "Flame F1 空气循环扇",
+    "category": "home_appliance"
+  },
+  {
+    "id": "flame_thermos_t1",
+    "sku": "200006",
+    "name": "Flame T1 不锈钢保温杯",
+    "category": "drinkware"
+  },
+  {
+    "id": "flame_storage_box_s1",
+    "sku": "200007",
+    "name": "Flame S1 折叠收纳箱",
+    "category": "home_storage"
   }
 ]

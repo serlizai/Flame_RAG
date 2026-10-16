@@ -55,7 +55,19 @@ def test_real_product_metadata_survives_persistence_and_repeated_builds(tmp_path
     assert sync_product_chunks(chunks, embeddings, directory) == 0
 
     stored = product_store(directory, embeddings).get()
-    assert len(stored["ids"]) == len(chunks) == 22
+    assert len(stored["ids"]) == len(chunks)
+    expected_products = {
+        document.metadata["product_id"]: document.metadata["category"]
+        for document in load_product_documents(DEFAULT_PRODUCTS_DIRECTORY)
+    }
+    assert len(expected_products) == 10
+    assert {metadata["product_id"] for metadata in stored["metadatas"]} == set(
+        expected_products
+    )
+    assert all(
+        metadata["category"] == expected_products[metadata["product_id"]]
+        for metadata in stored["metadatas"]
+    )
     expected = {chunk.metadata["chunk_id"]: chunk for chunk in chunks}
     for chunk_id, text, metadata in zip(
         stored["ids"], stored["documents"], stored["metadatas"]

@@ -11,11 +11,12 @@ PRODUCTS_PATH = PROJECT_ROOT / "data" / "products.json"
 
 @dataclass(frozen=True)
 class Product:
-    """商品表中的基础身份字段；SKU 保持字符串。"""
+    """商品身份与分类；SKU 保持字符串，旧商品表兼容手机默认分类。"""
 
     id: str
     sku: str
     name: str
+    category: str = "smartphone"
 
 
 def load_products(path: Path | None = None) -> dict[str, Product]:
@@ -36,7 +37,13 @@ def load_products(path: Path | None = None) -> dict[str, Product]:
             for key in ("id", "sku", "name")
         ):
             raise ValueError("每个商品必须包含非空字符串 id、sku、name。")
-        product = Product(**{key: record[key].strip() for key in ("id", "sku", "name")})
+        category = record.get("category", "smartphone")
+        if not isinstance(category, str) or not category.strip():
+            raise ValueError("商品分类 category 必须为非空字符串。")
+        product = Product(
+            **{key: record[key].strip() for key in ("id", "sku", "name")},
+            category=category.strip(),
+        )
         if product.id in products or product.sku in skus:
             raise ValueError("商品表中的商品 ID 和 SKU 必须唯一。")
         products[product.id] = product

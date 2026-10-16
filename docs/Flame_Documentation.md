@@ -67,7 +67,8 @@ uv run uvicorn backend.main:app --reload
 ## Product metadata
 
 The product Markdown files in `data/products/` have a first-level product title,
-`SKU`, and `product_id` fields. Prepare their chunks with:
+`SKU`, `product_id`, and per-product `category` fields. The catalog contains ten
+demonstration products across phones and household goods. Prepare their chunks with:
 
 ```bash
 uv run python -m scripts.prepare_product_chunks
@@ -76,7 +77,8 @@ uv run python -m scripts.prepare_product_chunks
 Every exported chunk includes `product_id`, `sku_id` (a string), `product_name`,
 `category`, and the source filename. Section names and chunk IDs are also
 preserved. The current defaults are 800 characters per chunk, 100 characters of
-overlap, and category `smartphone`. Optional flags include `--products-directory`,
+overlap. Category comes from each document header; legacy documents default to
+`smartphone`, and an explicit `--category` overrides all categories. Optional flags include `--products-directory`,
 `--output`, `--category`, `--chunk-size`, and `--chunk-overlap`.
 
 The output, `data/product_chunks.jsonl`, contains both text and metadata. It is a

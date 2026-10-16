@@ -14,7 +14,10 @@ def main(argv=None):
     parser.add_argument(
         "--output", type=Path, default=Path("data/product_chunks.jsonl")
     )
-    parser.add_argument("--category", default="smartphone")
+    parser.add_argument(
+        "--category",
+        help="统一覆盖分类；省略时读取各文档 category，旧文档默认 smartphone",
+    )
     parser.add_argument("--chunk-size", type=int, default=800)
     parser.add_argument("--chunk-overlap", type=int, default=100)
     args = parser.parse_args(argv)

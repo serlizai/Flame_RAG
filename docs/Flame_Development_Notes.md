@@ -2,7 +2,7 @@
 
 更新日期：2026-10-16。本文汇总已完成的修改，对应[圣火文档](../圣火文档.md)第 1～4 周开发。
 
-当前已完成项目命名清理、三个商品文档、Chunk Metadata、商品建库脚本、后端商品库配置、基础检索验收、中文注释、独立 `.venv` 和中文 README。已使用本地 BGE-M3 建成商品库：**22 个文本块，每个向量 1024 维**。三个问题的基础商品召回通过，真实 Agent 和 FastAPI 问答、追问、缓存链路已验收；章节召回及更广泛的回答质量仍需完善。安装与完整服务流程见 [README](../README.md)。
+当前已完成项目命名清理、10 个跨品类商品文档、Chunk Metadata、商品建库脚本、后端商品库配置、基础检索验收、中文注释、独立 `.venv` 和中文 README。已使用本地 BGE-M3 同步商品库：**71 个文本块，每个向量 1024 维**。11 个问题在全库和商品过滤两种模式下均通过基础召回。前三款手机扩充为十商品的过程见[扩充开发记录](Ten_Product_Catalog.md)；下方各阶段历史测试数字保留当时结果。章节召回及更广泛的回答质量仍需完善。安装与完整服务流程见 [README](../README.md)。
 
 项目现仅保留 `backend/` 中的 LangGraph Agent 问答架构；经典 RAG、独立 CrewAI 示例及旧 schema 已移除，具体清理范围见第 9 节。
 
@@ -25,13 +25,20 @@
 
 ## 2. 商品文档
 
-新增目录与文件：
+当前目录与文件：
 
 ```text
 data/products/
 ├── x500.md
 ├── x500_pro.md
-└── x500_pro_max.md
+├── x500_pro_max.md
+├── kettle_k1.md
+├── air_fryer_a1.md
+├── rice_cooker_r1.md
+├── desk_lamp_l1.md
+├── circulation_fan_f1.md
+├── thermos_t1.md
+└── storage_box_s1.md
 ```
 
 | 文档 | 商品名称 | product_id | SKU | 当前块数 |
@@ -39,8 +46,15 @@ data/products/
 | `x500.md` | vivo X500 | `vivo_x500` | `100000` | 7 |
 | `x500_pro.md` | vivo X500 Pro | `vivo_x500_pro` | `100001` | 7 |
 | `x500_pro_max.md` | vivo X500 Pro Max | `vivo_x500_pro_max` | `100002` | 8 |
+| `kettle_k1.md` | Flame K1 电热水壶 | `flame_kettle_k1` | `200001` | 7 |
+| `air_fryer_a1.md` | Flame A1 空气炸锅 | `flame_air_fryer_a1` | `200002` | 7 |
+| `rice_cooker_r1.md` | Flame R1 电饭煲 | `flame_rice_cooker_r1` | `200003` | 7 |
+| `desk_lamp_l1.md` | Flame L1 LED 台灯 | `flame_desk_lamp_l1` | `200004` | 7 |
+| `circulation_fan_f1.md` | Flame F1 空气循环扇 | `flame_circulation_fan_f1` | `200005` | 7 |
+| `thermos_t1.md` | Flame T1 不锈钢保温杯 | `flame_thermos_t1` | `200006` | 7 |
+| `storage_box_s1.md` | Flame S1 折叠收纳箱 | `flame_storage_box_s1` | `200007` | 7 |
 
-每个文件包含商品名称、SKU、product_id、品牌、型号，以及六个统一章节：商品简介、核心参数、核心卖点、使用说明、FAQ、售后说明。
+每个文件包含商品名称、SKU、product_id、category、品牌、型号，以及六个统一章节：商品简介、核心参数、核心卖点、使用说明、FAQ、售后说明。
 
 **当前参数、价格和售后规则均为虚构演示内容**，各文档已注明。正式使用前需要替换为经过核验的商品资料；一个 SKU 对应文档中明确的一种商品配置。
 
@@ -67,7 +81,7 @@ data/products/
 | --- | --- |
 | `product_id`、`sku_id` | 从文档头部读取，用于识别商品和配置；SKU 保持字符串，保留前导零 |
 | `product_name` | 从一级标题读取，用于展示和引用 |
-| `category` | 默认 `smartphone`，可通过命令参数修改 |
+| `category` | 从每个文档头部读取；旧文档默认 `smartphone`，命令参数可统一覆盖 |
 | `source`、`section` | 文件名与章节名，用于定位原文；头部信息块的章节为“商品信息” |
 | `chunk_index`、`chunk_id` | 商品内从 0 开始的序号与稳定标识，用于重复建库和更新 |
 
@@ -83,7 +97,7 @@ data/products/
 | --- | --- | --- |
 | `scripts/prepare_product_chunks.py` | 导出文本和 Metadata，不加载模型 | `data/product_chunks.jsonl` |
 | `scripts/build_product_db.py` | 生成 BGE 向量并同步商品库 | `chroma_db_products/`，集合名 `products` |
-| `scripts/test_retrieval.py` | 用真实 BGE 验证三个问题的商品召回 | 控制台明细、通过结果和退出码 |
+| `scripts/test_retrieval.py` | 用真实 BGE 验证 11 个问题，覆盖 10 个商品 | 控制台明细、通过结果和退出码 |
 
 ```text
 商品 Markdown → 字段校验 → Document → 按章节及 800/100 切分
@@ -141,7 +155,7 @@ uv run python -m scripts.test_retrieval --filter-products --device cpu
 | `--persist-directory` | 商品数据库目录，默认 `chroma_db_products` |
 | `--model-path` | 覆盖 `BGE_M3_PATH` |
 | `--device` | 覆盖 `EMBEDDING_DEVICE`，未配置时使用 `cpu` |
-| `--category` | 默认 `smartphone` |
+| `--category` | 默认逐文档读取；显式指定时统一覆盖所有分类 |
 | `--chunk-size`、`--chunk-overlap` | 默认 `800`、`100` |
 
 商品脚本的相对数据路径及显式传入的模型路径均从项目根目录解析。JSONL 导出脚本可用 `--output` 指定输出文件。
@@ -372,3 +386,11 @@ HTTP 验收使用独立会话和随机问题，完成后只清理本次数据。
 既有测试与评测注释同步名称，新增 5 项测试覆盖新名绑定、旧调用过滤、真实 SQLite 旧会话续聊及第一步缓存隔离。完整离线回归 **188 项通过、4 项真实服务测试默认跳过**，Ruff、格式及差异空白检查通过。单独运行商品切换和提示词两项真实测试 **均通过**，确认真实调用 `retrieve_product_docs`、三个商品的引用不混用、切回 Pro 续聊、缺少 L2 容量时说明未查询到、身份与备注回答正常。
 
 第四周两个开发步骤及纯后端商品 RAG V0.1 验收完成，验证结果和手动命令见[第四周记录](Week4_Product_RAG_MVP.md)。测试仅清理自己的随机数据。用户已有 FastAPI 需在自己的终端重启以加载新工具；第五周正式接口按后续请求继续开发。
+
+## 18. 扩充十商品跨品类知识库（2026-10-16）
+
+保留三款手机，新增电热水壶、空气炸锅、电饭煲、台灯、空气循环扇、保温杯和折叠收纳箱。商品表新增七项并为全部商品保存 `category`，十个 Markdown 的身份、分类与 JSON 一致；参数和售后继续标注为虚构演示数据。
+
+解析器从各文档头部读取分类，建库和导出脚本不再默认把混合商品库全部标成手机；旧文档与旧商品表兼容 `smartphone`，显式 `--category` 可统一覆盖。商品 API、State 和工具继续复用原有通用商品 ID 逻辑，答案缓存升级命名空间以避开旧集合的缓存。
+
+已使用真实本地 BGE-M3 更新 Chroma 为 71 个 1024 维向量，并同步 JSONL；逐条回读检查文本、身份、分类与向量维度，移除 3 个过期头部块。206 项离线测试通过，5 项真实测试默认跳过；11 个检索问题在全库和过滤模式下均通过，新增真实 HTTP 测试 1 项通过，水壶、杯子和收纳箱的三次问答及引用正确。开发步骤、完整清单、边界和手动命令见[十商品扩充记录](Ten_Product_Catalog.md)。

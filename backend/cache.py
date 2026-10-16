@@ -9,8 +9,9 @@ from langchain_community.chat_message_histories import RedisChatMessageHistory
 from backend.prompts import PROMPT_VERSION
 
 # 只保存无历史的首轮回答，不复用旧版本中可能依赖聊天历史的答案。
-CACHE_KEY_PREFIX = f"flame:llm_cache_v2:{PROMPT_VERSION}:"
-PRODUCT_CACHE_KEY_PREFIX = f"flame:llm_cache_product_v3:{PROMPT_VERSION}:"
+# 扩充到跨品类商品库后升级命名空间，避免复用旧商品集合生成的答案。
+CACHE_KEY_PREFIX = f"flame:llm_cache_v3:{PROMPT_VERSION}:"
+PRODUCT_CACHE_KEY_PREFIX = f"flame:llm_cache_product_v4:{PROMPT_VERSION}:"
 
 
 class RedisCache:
