@@ -6,6 +6,8 @@ Flame 使用本地 BGE-M3 和 Chroma 检索商品资料，再通过 LangGraph �
 
 第四周已整理商品专用提示词，统一角色、当前商品、检索时机、资料缺失及引用规则，并将正式商品工具改名为 `retrieve_product_docs`。实现与手动测试见[第四周记录](docs/Week4_Product_RAG_MVP.md)。
 
+第五周四个正式接口已接入：商品列表、单商品基础信息、`POST /api/chat` 聊天和 `GET /api/health` 存活检查。商品查询直接读取 JSON，聊天复用现有 Agent，存活检查不访问外部依赖。接口约定和手动测试见[第五周记录](docs/Week5_Formal_API.md)。
+
 ## 1. 安装项目环境
 
 需要 Python 3.11 及以上、[uv](https://docs.astral.sh/uv/) 和已下载的 BGE-M3 模型。完整问答服务还需要 Redis，以及支持工具调用的 OpenAI 兼容聊天服务。
@@ -112,7 +114,7 @@ uv run python -m scripts.test_retrieval --filter-products --device cpu
 
 ## 5. 启动问答服务
 
-先完成聊天配置和商品建库，再启动 Redis。使用 Docker 时：
+商品列表和基础信息接口只需要商品表和 FastAPI，可直接启动服务访问。完整问答需先完成聊天配置和商品建库，再启动 Redis。使用 Docker 时：
 
 ```bash
 docker run -d --name flame-redis -p 6379:6379 redis:7
@@ -129,30 +131,50 @@ Redis 启用密码时，在本地 `.env` 中配置 `REDIS_URL=redis://:你的密
 uv run uvicorn backend.main:app --reload
 ```
 
-接口文档：<http://127.0.0.1:8000/docs>。在另一个终端发起请求：
+接口文档：<http://127.0.0.1:8000/docs>。在另一个终端先检查 HTTP 服务是否存活：
 
 ```bash
-curl -G 'http://127.0.0.1:8000/query' \
-  --data-urlencode 'query=X500 Pro 有哪些配置？'
+curl 'http://127.0.0.1:8000/api/health'
+```
+
+预期返回 `{"status":"ok","service":"flame"}`。该响应只表示 HTTP 服务可用，不探测模型、Redis 或知识库。获取商品列表：
+
+```bash
+curl 'http://127.0.0.1:8000/api/products'
+```
+
+返回 JSON 数组，每项包含 `id`、`sku`、`name`、`category`，SKU 为字符串。查询其中一个商品的基础信息：
+
+```bash
+curl 'http://127.0.0.1:8000/api/products/flame_kettle_k1'
+```
+
+单商品接口返回 JSON 对象，字段与列表项一致；商品 ID 不存在返回 404，空白 ID 返回 422，商品表配置错误返回 500。它只读取基础信息，参数及 FAQ 继续通过问答检索资料。将选中项的 `id` 作为问答请求的 `product_id`，使用正式聊天接口：
+
+```bash
+curl 'http://127.0.0.1:8000/api/chat' \
+  -H 'Content-Type: application/json' \
+  --data '{"product_id":"vivo_x500_pro","message":"这款支持无线充电吗？","session_id":"my-session"}'
 ```
 
 接口返回 `answer`、`citations`、`session_id`、`product_id`。引用包含 `number`、`label`、`snippet` 和 `source`。继续同一会话时传回第一次响应中的 `session_id`：
 
 ```bash
-curl -G 'http://127.0.0.1:8000/query' \
-  --data-urlencode 'query=它有哪些核心卖点？' \
-  --data-urlencode 'session_id=替换为第一次响应中的 session_id'
+curl 'http://127.0.0.1:8000/api/chat' \
+  -H 'Content-Type: application/json' \
+  --data '{"product_id":"vivo_x500_pro","message":"它有哪些核心卖点？","session_id":"my-session"}'
 ```
 
-也支持 JSON 请求，`product_id` 和 `session_id` 可省略：
+`product_id` 和 `session_id` 可省略或传 `null`；未指定会话时自动生成编号。原 `GET /query` 和 `POST /query` 继续兼容，例如：
 
 ```bash
-curl 'http://127.0.0.1:8000/query' \
-  -H 'Content-Type: application/json' \
-  --data '{"product_id":"vivo_x500_pro","message":"这款支持无线充电吗？","session_id":"my-session"}'
+curl -G 'http://127.0.0.1:8000/query' \
+  --data-urlencode 'query=这款支持无线充电吗？' \
+  --data-urlencode 'product_id=vivo_x500_pro' \
+  --data-urlencode 'session_id=my-session'
 ```
 
-GET 请求也可增加 `product_id` 参数。不存在的商品返回 404，空问题及非法字段返回 422。每轮传入当前商品 ID；省略或传 `null` 表示独立的全库模式。指定 Pro 时工具只搜索 Pro，引用来源应为 `x500_pro.md`；改成 `vivo_x500`，应回答不支持无线充电且仅引用 `x500.md`。同会话的不同商品各有独立上下文，切回 Pro 会恢复之前的 Pro 对话，服务重启后也能续聊。
+新旧聊天入口共用会话，使用相同 `session_id` 和 `product_id` 即可续聊。不存在的商品返回 404，空问题及非法字段返回 422。每轮传入当前商品 ID；省略或传 `null` 表示独立的全库模式。指定 Pro 时工具只搜索 Pro，引用来源应为 `x500_pro.md`；改成 `vivo_x500`，应回答不支持无线充电且仅引用 `x500.md`。同会话的不同商品各有独立上下文，切回 Pro 会恢复之前的 Pro 对话，服务重启后也能续聊。
 
 可选的 Streamlit 界面：
 
@@ -174,7 +196,7 @@ uv run streamlit run app.py
 一次未命中缓存的问答经过以下环节：
 
 ```text
-用户请求 → FastAPI /query → agent_invoke（分配或复用 session_id）
+用户请求 → FastAPI POST /api/chat → agent_invoke（分配或复用 session_id）
         → 按 session_id 与 product_id 选择 thread_id，读取 SQLite 图状态
         → 无历史的首轮可使用 Redis 答案缓存，有历史则跳过缓存
         → LangGraph 的 llm_call：聊天模型决定是否调用工具
@@ -190,7 +212,7 @@ uv run streamlit run app.py
 
 模型可能调用工具多次，也可能直接进入最终回答；缓存命中时恢复回答和引用，并同步更新图状态中的本轮消息和商品 ID，跳过模型调用与检索。Streamlit 从 `agent_invoke` 进入同一后端流程。
 
-“完整链路验收”意味着真实聊天服务、BGE、Chroma、Redis 和接口一起工作：实际调用 `/query` 得到回答及有效引用，再复用会话 ID 追问。单独检索通过、接口文档能打开或离线测试通过，都不足以证明这些环节全部正常。
+“完整链路验收”意味着真实聊天服务、BGE、Chroma、Redis 和接口一起工作：实际调用 `/api/chat` 得到回答及有效引用，再复用会话 ID 追问。单独检索通过、健康检查返回 200、接口文档能打开或离线测试通过，都不足以证明这些环节全部正常。
 
 图状态默认写入 `data/checkpoints.sqlite`，相对路径按项目根目录解析，可通过 `CHECKPOINT_SQLITE_PATH` 修改。前端会话 ID 保持不变，后端按会话与商品生成内部线程；Redis 汇总页面问答历史，SQLite 恢复模型上下文。答案缓存仅用于没有历史的首轮，追问既不读取也不覆盖共享缓存。完整切换与重启测试见[会话开发记录](docs/Product_Sessions_and_Checkpoints.md)。
 
@@ -203,11 +225,14 @@ uv run ruff format --check .
 
 # 仅在真实聊天服务、Redis 和商品库都准备好后运行
 RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_agent.py -q
+
+# 正式接口真实 TCP 验收：临时服务、续聊、商品切换和缓存
+RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_formal_api_integration.py -q -s
 ```
 
-最后一条命令包含真实问答、商品状态、商品过滤、商品提示词和生活用品 HTTP 五项测试，使用随机问题和独立会话，检查工具调用、引用、Redis 历史、缓存、商品切换、资料缺失及备注记忆，结束后清理本次测试数据。普通测试默认跳过它们；FastAPI 的 HTTP 请求可按第 5 节及商品扩充记录验收。
+两条真实测试命令共六项测试。前者覆盖 Agent 问答、商品状态、过滤、提示词和生活用品路由；后者在随机端口启动真实 Uvicorn，验证正式接口、新旧入口共用会话、商品切换和首轮缓存，使用独立临时检查点文件，结束后关闭测试服务并清理随机 Redis 数据。普通测试默认跳过它们。
 
-当前已完成独立项目环境、商品库及真实 BGE 检索。独立 `.venv` 使用 Python 3.11.15；206 项离线测试通过、5 项真实服务测试默认跳过，修改代码的 Ruff 检查通过。已移除与新版 PyMuPDF 底层库冲突的旧 PyMuPDFb，并同步依赖声明和锁文件。
+当前已完成独立项目环境、商品库及真实 BGE 检索。独立 `.venv` 使用 Python 3.11.15；254 项离线测试通过、6 项真实服务测试默认跳过，修改代码的 Ruff 检查通过。已移除与新版 PyMuPDF 底层库冲突的旧 PyMuPDFb，并同步依赖声明和锁文件。
 
 经典 RAG 入口、对话 Notebook、独立 CrewAI 示例和未使用的旧 schema 已删除；缓存集中在 `backend/cache.py`。`langchain-classic` 已从直接依赖中移除，但仍由 `langchain-community` 作为传递依赖安装，不代表项目仍保留经典问答代码。
 
@@ -227,11 +252,17 @@ RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_agent.py -q
 
 2026-10-16 扩充至十商品：新增七款生活用品，逐商品读取分类，JSON、Markdown、JSONL 和真实 Chroma 已同步为 10 个商品、71 个 Chunk。206 项离线测试通过，全库和过滤召回均为 11/11；新增真实生活用品 HTTP 测试通过，三次请求均返回正确参数及对应商品引用，详见[扩充记录](docs/Ten_Product_Catalog.md)。
 
+2026-10-16 完成第五周第一步：新增正式商品列表 `GET /api/products`，返回十个商品的 ID、SKU、名称和分类；与问答校验共用商品表错误处理。7 项新增测试覆盖响应、配置错误、数据更新、OpenAPI 和新进程轻量读取。213 项离线测试通过；临时 Uvicorn 服务的真实 HTTP 请求返回 200，模型与 Redis 不可用时仍能获取列表，详见[第五周记录](docs/Week5_Formal_API.md)。
+
+2026-10-16 完成第五周第二步：新增 `GET /api/products/{product_id}`，返回单商品基础信息，与列表共用响应模型、与问答校验共用商品查找逻辑。229 项离线测试通过，临时服务真实 HTTP 验证十个商品详情均为 200，不存在和空白 ID 分别为 404、422。下一步是正式聊天接口 `POST /api/chat`，详见[第二步记录](docs/Week5_Formal_API.md#第二步单商品基础信息已完成)。
+
+2026-10-16 完成第五周第三、四步：新增正式 `POST /api/chat` 和轻量 `GET /api/health`，聊天入口复用原有校验、会话、过滤、引用和缓存。254 项离线测试通过；新增真实 Uvicorn TCP 测试 1 项通过，确认四个正式接口、404/422、新旧入口续聊、商品切换及模型调用为 0 的缓存命中。测试服务和随机 Redis 数据已清理，完成第五周接口验收，详见[第五周记录](docs/Week5_Formal_API.md)。
+
 主要文件：
 
 | 文件或目录 | 职责 |
 | --- | --- |
-| `backend/main.py` | FastAPI 问答入口 |
+| `backend/main.py` | FastAPI 商品列表、基础信息、正式聊天和存活检查 |
 | `backend/products.py`、`data/products.json` | 商品身份读取和 API 商品校验 |
 | `backend/retrieval.py` | Agent 调用、会话、缓存和历史 |
 | `backend/sessions.py`、`backend/checkpoints.py` | 商品线程标识与 SQLite 检查点 |

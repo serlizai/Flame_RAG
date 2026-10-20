@@ -61,8 +61,21 @@ entries. Use a separate directory when building a new corpus.
 uv run uvicorn backend.main:app --reload
 ```
 
-`GET /query` accepts `query` and an optional `session_id`. It returns `answer`,
-`citations`, and `session_id`. Reuse the session ID for follow-up questions.
+`GET /api/products` returns the catalog as a JSON array of `id`, `sku`, `name`,
+and `category`. It reads `data/products.json` without loading the Agent, vector
+model, or Redis. Use the selected `id` as `product_id` in a question request.
+`GET /api/products/{product_id}` returns one catalog item with the same fields.
+Unknown IDs return 404, blank IDs return 422, and an invalid catalog returns 500.
+See [the week-five API notes](Week5_Formal_API.md) for the current rollout.
+
+`POST /api/chat` accepts a JSON body with `message`, optional `product_id`, and
+optional `session_id`. It returns `answer`, `citations`, `session_id`, and
+`product_id`. Legacy `GET /query` and `POST /query` share the same Agent and
+session state; reuse the same session and product IDs for follow-up questions.
+
+`GET /api/health` returns `{"status":"ok","service":"flame"}` as a lightweight
+HTTP liveness check. It does not load the model or check Redis, the catalog, or
+the vector database, and therefore does not report dependency readiness.
 
 ## Product metadata
 

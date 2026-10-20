@@ -1,12 +1,12 @@
-"""提供兼容 GET 参数和 JSON 请求体的 Flame 问答接口。"""
+"""提供正式商品、聊天和存活检查接口，并保留原有问答入口。"""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from backend.citation import Citation
-from backend.products import load_products
+from backend.products import Product, load_products
 
 NonEmptyString = Annotated[
     str, StringConstraints(strict=True, strip_whitespace=True, min_length=1)
@@ -32,7 +32,41 @@ class QueryResponse(BaseModel):
     product_id: str | None
 
 
+class ProductResponse(BaseModel):
+    """商品选择和基础信息查询共用的响应，SKU 使用字符串保留前导零。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = Field(description="商品 ID，提问时作为 product_id 传回")
+    sku: str = Field(description="当前配置的 SKU 编号，保持字符串")
+    name: str = Field(description="商品展示名称")
+    category: str = Field(description="商品分类")
+
+
+class HealthResponse(BaseModel):
+    """HTTP 服务存活状态，不代表模型、Redis 或知识库已经就绪。"""
+
+    status: Literal["ok"] = Field(description="当前 HTTP 服务可响应请求")
+    service: Literal["flame"] = Field(description="服务名称")
+
+
 app = FastAPI()
+
+
+def _load_product_catalog() -> dict[str, Product]:
+    """统一读取商品表，配置异常只向客户端返回通用说明。"""
+    try:
+        return load_products()
+    except ValueError as error:
+        raise HTTPException(status_code=500, detail="商品表配置错误。") from error
+
+
+def _get_product(product_id: str) -> Product:
+    """按 ID 获取商品，基础信息查询和问答校验共用不存在商品的处理。"""
+    products = _load_product_catalog()
+    if product_id not in products:
+        raise HTTPException(status_code=404, detail="当前商品不存在。")
+    return products[product_id]
 
 
 def _invoke_agent(query, session_id, product_id):
@@ -43,14 +77,9 @@ def _invoke_agent(query, session_id, product_id):
 
 
 def _answer_request(request: QueryRequest) -> QueryResponse:
-    """两种请求格式共用商品校验和后端调用逻辑。"""
+    """正式聊天和兼容问答入口共用商品校验、会话、缓存及引用逻辑。"""
     if request.product_id is not None:
-        try:
-            products = load_products()
-        except ValueError as error:
-            raise HTTPException(status_code=500, detail="商品表配置错误。") from error
-        if request.product_id not in products:
-            raise HTTPException(status_code=404, detail="当前商品不存在。")
+        _get_product(request.product_id)
 
     answer, citations, session_id = _invoke_agent(
         request.message, request.session_id, request.product_id
@@ -61,6 +90,60 @@ def _answer_request(request: QueryRequest) -> QueryResponse:
         session_id=session_id,
         product_id=request.product_id,
     )
+
+
+@app.get(
+    "/api/products",
+    response_model=list[ProductResponse],
+    summary="获取商品列表",
+    tags=["商品"],
+)
+def list_products() -> list[Product]:
+    """按商品表顺序返回基础信息，供前端选择商品，不加载问答模型。"""
+    return list(_load_product_catalog().values())
+
+
+@app.get(
+    "/api/products/{product_id}",
+    response_model=ProductResponse,
+    summary="获取指定商品的基础信息",
+    tags=["商品"],
+    responses={
+        404: {"description": "当前商品不存在"},
+        500: {"description": "商品表配置错误"},
+    },
+)
+def get_product(
+    product_id: Annotated[NonEmptyString, Path(description="商品列表中返回的 id")],
+) -> Product:
+    """只读指定商品的 ID、SKU、名称和分类，不加载模型或检索知识库。"""
+    return _get_product(product_id)
+
+
+@app.post(
+    "/api/chat",
+    response_model=QueryResponse,
+    summary="提交商品聊天消息",
+    tags=["聊天"],
+    responses={
+        404: {"description": "当前商品不存在"},
+        500: {"description": "商品表配置错误或问答服务异常"},
+    },
+)
+def chat(request: QueryRequest) -> QueryResponse:
+    """接收 JSON 消息并返回回答、引用和会话 ID，复用现有 Agent 链路。"""
+    return _answer_request(request)
+
+
+@app.get(
+    "/api/health",
+    response_model=HealthResponse,
+    summary="检查 HTTP 服务是否存活",
+    tags=["服务"],
+)
+def health() -> HealthResponse:
+    """只报告进程能够响应 HTTP，不访问商品表或外部依赖。"""
+    return HealthResponse(status="ok", service="flame")
 
 
 @app.get("/query", response_model=QueryResponse)

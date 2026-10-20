@@ -9,6 +9,12 @@ from backend.products import load_products
 
 
 @pytest.fixture
+def post_endpoint(request):
+    """正式聊天与兼容入口使用相同的请求和响应约定。"""
+    return request.param
+
+
+@pytest.fixture
 def api_client(monkeypatch):
     """记录路由传给 Agent 的输入，并提供可序列化的回答和引用。"""
     calls = []
@@ -26,10 +32,11 @@ def api_client(monkeypatch):
         yield client, calls
 
 
-def test_post_passes_product_message_and_session_to_agent(api_client):
+@pytest.mark.parametrize("post_endpoint", ["/query", "/api/chat"], indirect=True)
+def test_post_passes_product_message_and_session_to_agent(api_client, post_endpoint):
     client, calls = api_client
     response = client.post(
-        "/query",
+        post_endpoint,
         json={
             "product_id": " vivo_x500_pro ",
             "message": " 这款支持无线充电吗？ ",
@@ -73,17 +80,18 @@ def test_get_also_accepts_current_product(api_client):
 
 
 @pytest.mark.parametrize("product_id", list(load_products()))
-def test_post_accepts_every_catalog_product(api_client, product_id):
+@pytest.mark.parametrize("post_endpoint", ["/query", "/api/chat"], indirect=True)
+def test_post_accepts_every_catalog_product(api_client, product_id, post_endpoint):
     client, calls = api_client
     response = client.post(
-        "/query", json={"message": "这款有什么特点？", "product_id": product_id}
+        post_endpoint, json={"message": "这款有什么特点？", "product_id": product_id}
     )
     assert response.status_code == 200
     assert response.json()["product_id"] == product_id
     assert calls == [("这款有什么特点？", None, product_id)]
 
 
-@pytest.mark.parametrize("method", ["get", "post"])
+@pytest.mark.parametrize("method", ["get", "post", "chat"])
 def test_unknown_product_is_rejected_before_agent_call(api_client, method):
     client, calls = api_client
     if method == "get":
@@ -92,7 +100,8 @@ def test_unknown_product_is_rejected_before_agent_call(api_client, method):
         )
     else:
         response = client.post(
-            "/query", json={"message": "商品有什么功能？", "product_id": "unknown"}
+            "/api/chat" if method == "chat" else "/query",
+            json={"message": "商品有什么功能？", "product_id": "unknown"},
         )
     assert response.status_code == 404
     assert response.json()["detail"] == "当前商品不存在。"
@@ -111,9 +120,12 @@ def test_unknown_product_is_rejected_before_agent_call(api_client, method):
         {"message": "问题", "unexpected": "字段拼写错误"},
     ],
 )
-def test_post_rejects_invalid_input_before_agent_call(api_client, payload):
+@pytest.mark.parametrize("post_endpoint", ["/query", "/api/chat"], indirect=True)
+def test_post_rejects_invalid_input_before_agent_call(
+    api_client, payload, post_endpoint
+):
     client, calls = api_client
-    response = client.post("/query", json=payload)
+    response = client.post(post_endpoint, json=payload)
     assert response.status_code == 422
     assert calls == []
 
@@ -134,15 +146,24 @@ def test_get_rejects_empty_fields_before_agent_call(api_client, params):
     assert calls == []
 
 
-def test_post_can_omit_product_for_original_whole_library_mode(api_client):
+@pytest.mark.parametrize("post_endpoint", ["/query", "/api/chat"], indirect=True)
+@pytest.mark.parametrize(
+    "optional_fields", [{}, {"product_id": None, "session_id": None}]
+)
+def test_post_can_omit_product_for_original_whole_library_mode(
+    api_client, post_endpoint, optional_fields
+):
     client, calls = api_client
-    response = client.post("/query", json={"message": "介绍一下商品"})
+    response = client.post(
+        post_endpoint, json={"message": "介绍一下商品", **optional_fields}
+    )
     assert response.status_code == 200
     assert calls == [("介绍一下商品", None, None)]
 
 
+@pytest.mark.parametrize("post_endpoint", ["/query", "/api/chat"], indirect=True)
 def test_invalid_catalog_reports_configuration_error_before_agent_call(
-    api_client, monkeypatch
+    api_client, monkeypatch, post_endpoint
 ):
     client, calls = api_client
 
@@ -151,7 +172,7 @@ def test_invalid_catalog_reports_configuration_error_before_agent_call(
 
     monkeypatch.setattr(main, "load_products", invalid_catalog)
     response = client.post(
-        "/query", json={"message": "问题", "product_id": "vivo_x500"}
+        post_endpoint, json={"message": "问题", "product_id": "vivo_x500"}
     )
     assert response.status_code == 500
     assert response.json()["detail"] == "商品表配置错误。"
@@ -164,3 +185,29 @@ def test_openapi_describes_json_body_and_product_response(api_client):
     assert {"get", "post"} <= set(schema["paths"]["/query"])
     properties = schema["components"]["schemas"]["QueryRequest"]["properties"]
     assert {"message", "session_id", "product_id"} <= set(properties)
+    operation = schema["paths"]["/api/chat"]["post"]
+    request = operation["requestBody"]["content"]["application/json"]["schema"]
+    response = operation["responses"]["200"]["content"]["application/json"]["schema"]
+    assert request["$ref"] == "#/components/schemas/QueryRequest"
+    assert response["$ref"] == "#/components/schemas/QueryResponse"
+
+
+def test_health_is_independent_of_catalog_and_agent(api_client, monkeypatch):
+    client, calls = api_client
+
+    def unavailable_catalog():
+        raise AssertionError("存活检查不应读取商品表。")
+
+    monkeypatch.setattr(main, "load_products", unavailable_catalog)
+    response = client.get("/api/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "service": "flame"}
+    assert calls == []
+
+
+def test_openapi_describes_lightweight_health_response(api_client):
+    client, _ = api_client
+    schema = client.get("/openapi.json").json()
+    operation = schema["paths"]["/api/health"]["get"]
+    response = operation["responses"]["200"]["content"]["application/json"]["schema"]
+    assert response["$ref"] == "#/components/schemas/HealthResponse"
