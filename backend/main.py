@@ -21,6 +21,11 @@ class QueryRequest(BaseModel):
     message: NonEmptyString = Field(description="本轮用户问题")
     session_id: NonEmptyString | None = Field(default=None, description="已有会话编号")
     product_id: NonEmptyString | None = Field(default=None, description="当前商品 ID")
+    follow_conversation: bool = Field(
+        default=False,
+        strict=True,
+        description="按会话承接话题和商品指代，例如‘那普通版呢’；默认保留显式商品范围",
+    )
 
 
 class QueryResponse(BaseModel):
@@ -81,14 +86,28 @@ def _answer_request(request: QueryRequest) -> QueryResponse:
     if request.product_id is not None:
         _get_product(request.product_id)
 
-    answer, citations, session_id = _invoke_agent(
-        request.message, request.session_id, request.product_id
-    )
+    product_id = request.product_id
+    if request.follow_conversation:
+        from backend.retrieval import agent_invoke
+
+        trace = {}
+        answer, citations, session_id = agent_invoke(
+            request.message,
+            request.session_id,
+            product_id,
+            follow_conversation=True,
+            trace=trace,
+        )
+        product_id = trace.get("product_id", product_id)
+    else:
+        answer, citations, session_id = _invoke_agent(
+            request.message, request.session_id, product_id
+        )
     return QueryResponse(
         answer=answer,
         citations=citations,
         session_id=session_id,
-        product_id=request.product_id,
+        product_id=product_id,
     )
 
 

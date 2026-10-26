@@ -1,6 +1,8 @@
 """用真实 Chroma 和 LangGraph 验证正式商品过滤，替代聊天模型和 Redis。"""
 
 import importlib.util
+import json
+from backend import business_tools
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -81,7 +83,7 @@ def tool_call(query="这款支持无线充电吗？", **kwargs):
     """创建与真实模型输出一致的工具调用结构。"""
     return {
         "type": "tool_call",
-        "name": "retrieve_product_docs",
+        "name": "product_rag_tool",
         "id": uuid.uuid4().hex,
         "args": {"query": query, **kwargs},
     }
@@ -156,7 +158,7 @@ def product_agent(tmp_path, monkeypatch):
 def test_real_chroma_limits_results_to_selected_product(
     product_agent, product_id, sources
 ):
-    result = product_agent.tools.retrieve_product_docs.invoke(
+    result = product_agent.tools.product_rag_tool.invoke(
         tool_call(product_id=product_id)
     )
     assert {citation.source for citation in result.artifact} == sources
@@ -167,22 +169,22 @@ def test_real_chroma_limits_results_to_selected_product(
 
 
 def test_model_can_only_supply_search_query(product_agent):
-    schema = (
-        product_agent.tools.retrieve_product_docs.tool_call_schema.model_json_schema()
-    )
+    schema = product_agent.tools.product_rag_tool.tool_call_schema.model_json_schema()
     assert set(schema["properties"]) == {"query"}
 
 
-def test_model_is_bound_only_to_the_new_product_tool(product_agent):
-    assert product_agent.model.bound_tool_names == ["retrieve_product_docs"]
-    assert set(product_agent.nodes.tools_by_name) == {"retrieve_product_docs"}
+def test_model_is_bound_to_four_business_tools(product_agent):
+    names = {"product_rag_tool", "product_info_tool", "price_tool", "after_sales_tool"}
+    assert set(product_agent.model.bound_tool_names) == names
+    assert set(product_agent.nodes.tools_by_name) == names
     assert not hasattr(product_agent.tools, "retrieve_docs")
 
 
-def test_legacy_pending_call_uses_new_tool_and_state_filter(product_agent):
+@pytest.mark.parametrize("legacy_name", ["retrieve_docs", "retrieve_product_docs"])
+def test_legacy_pending_call_uses_new_tool_and_state_filter(product_agent, legacy_name):
     """旧检查点中未执行的调用也要使用 State 商品过滤，不能扩大范围。"""
     call = tool_call(product_id="vivo_x500_pro_max")
-    call["name"] = "retrieve_docs"
+    call["name"] = legacy_name
     state = {
         "product_id": "vivo_x500_pro",
         "messages": [
@@ -191,9 +193,9 @@ def test_legacy_pending_call_uses_new_tool_and_state_filter(product_agent):
         ],
     }
     result = product_agent.nodes.tool_node(state)
-    assert result["messages"][0].name == "retrieve_product_docs"
+    assert result["messages"][0].name == "product_rag_tool"
     assert {c.source for c in result["citations"]} == {"x500_pro.md"}
-    assert call["name"] == "retrieve_docs"
+    assert call["name"] == legacy_name
 
 
 def test_sqlite_legacy_history_can_continue_with_new_tool(
@@ -258,12 +260,12 @@ def test_sqlite_legacy_history_can_continue_with_new_tool(
                 m for m in inputs if isinstance(m, AIMessage) and m.tool_calls
             )
             old_tool = next(m for m in inputs if isinstance(m, ToolMessage))
-            assert old_ai.tool_calls[0]["name"] == "retrieve_product_docs"
+            assert old_ai.tool_calls[0]["name"] == "product_rag_tool"
             assert (
                 old_ai.additional_kwargs["tool_calls"][0]["function"]["name"]
-                == "retrieve_product_docs"
+                == "product_rag_tool"
             )
-            assert old_tool.name == "retrieve_product_docs"
+            assert old_tool.name == "product_rag_tool"
         saved = graph.get_state(config).values["messages"]
         assert saved[1].tool_calls[0]["name"] == "retrieve_docs"
         assert (
@@ -272,7 +274,7 @@ def test_sqlite_legacy_history_can_continue_with_new_tool(
         )
         assert saved[2].name == "retrieve_docs"
         assert any(
-            isinstance(m, ToolMessage) and m.name == "retrieve_product_docs"
+            isinstance(m, ToolMessage) and m.name == "product_rag_tool"
             for m in saved[4:]
         )
 
@@ -441,15 +443,348 @@ def test_old_prompt_answer_is_not_returned_from_cache(product_agent, product_id)
 
 
 @pytest.mark.parametrize("product_id", [None, "vivo_x500_pro"])
-def test_first_step_prompt_cache_is_not_reused_after_rename(product_agent, product_id):
+@pytest.mark.parametrize("old_version", ["product_prompt_v1", "product_prompt_v2"])
+def test_first_step_prompt_cache_is_not_reused_after_rename(
+    product_agent, product_id, old_version
+):
     query = "这款有什么功能？"
     cache = product_agent.cache
     new_key = cache.make_cache_key(query, product_id)
-    old_key = new_key.replace(f"{PROMPT_VERSION}:", "product_prompt_v1:")
+    old_key = new_key.replace(f"{PROMPT_VERSION}:", f"{old_version}:")
     cache.values[old_key] = '{"answer":"第一步的缓存答案","citations":[]}'
     answer, _, _ = product_agent.retrieval.agent_invoke(
         query, "renamed-tool", product_id
     )
     assert answer != "第一步的缓存答案"
-    assert product_agent.model.bound_tool_names == ["retrieve_product_docs"]
+    assert len(product_agent.model.bound_tool_names) == 4
     assert product_agent.model.answer_inputs
+
+
+def test_parallel_business_calls_share_identity_and_unique_citations(
+    product_agent, monkeypatch
+):
+    def forbidden(*args, **kwargs):
+        pytest.fail("业务工具不能访问向量库")
+
+    monkeypatch.setattr(product_agent.store, "similarity_search", forbidden)
+    calls = [
+        {
+            "id": str(i),
+            "name": tool.name,
+            "args": {
+                "product_name": "X500 Pro Max",
+                "product_id": "vivo_x500_pro_max",
+                "citation_start": 99,
+            },
+        }
+        for i, tool in enumerate(
+            (
+                business_tools.product_info_tool,
+                business_tools.price_tool,
+                business_tools.after_sales_tool,
+            )
+        )
+    ]
+    result = product_agent.nodes.tool_node(
+        {
+            "product_id": "vivo_x500_pro",
+            "messages": [AIMessage(content="", tool_calls=calls)],
+        }
+    )
+    assert [c.number for c in result["citations"]] == [1, 2, 3]
+    assert all('"product_id": "vivo_x500_pro"' in m.content for m in result["messages"])
+    assert calls[0]["args"]["citation_start"] == 99
+
+
+def test_business_answers_do_not_reuse_shared_cache_after_price_update(
+    product_agent, monkeypatch, tmp_path
+):
+    source = json.loads(
+        Path(business_tools.BUSINESS_DATA_PATH).read_text(encoding="utf-8")
+    )
+    path = tmp_path / "business.json"
+    path.write_text(json.dumps(source), encoding="utf-8")
+    monkeypatch.setattr(business_tools, "BUSINESS_DATA_PATH", path)
+
+    def choose(messages):
+        if isinstance(messages[-1], HumanMessage):
+            return AIMessage(
+                content="",
+                tool_calls=[{"id": uuid.uuid4().hex, "name": "price_tool", "args": {}}],
+            )
+        return AIMessage(content="查询完毕")
+
+    monkeypatch.setattr(
+        product_agent.nodes, "model_with_tools", SimpleNamespace(invoke=choose)
+    )
+    product_agent.retrieval.agent_invoke("多少钱", "before", "vivo_x500_pro")
+    source["products"]["vivo_x500_pro"]["variants"][0]["price_fen"] = 10000
+    path.write_text(json.dumps(source), encoding="utf-8")
+    product_agent.retrieval.agent_invoke("多少钱", "after", "vivo_x500_pro")
+    assert not product_agent.cache.values
+    latest = product_agent.model.answer_inputs[-1]
+    assert any('"price_fen": 10000' in m.content for m in latest)
+
+
+def test_agent_trace_contains_only_current_turn(product_agent):
+    first, second = {}, {}
+    product_agent.retrieval.agent_invoke(
+        "第一轮问题", "trace-session", "vivo_x500_pro", trace=first
+    )
+    product_agent.retrieval.agent_invoke(
+        "第二轮问题", "trace-session", "vivo_x500_pro", trace=second
+    )
+    assert len(first["tools"]) == len(second["tools"]) == 1
+    assert first["tools"][0]["arguments"]["query"] == "第一轮问题"
+    assert second["tools"][0]["arguments"]["query"] == "第二轮问题"
+    assert second["tools"][0]["arguments"]["product_id"] == "vivo_x500_pro"
+    assert second["tools"][0]["result"] and not second["cache_hit"]
+
+
+def test_cache_trace_does_not_claim_prior_tool_execution(product_agent):
+    trace = {}
+    product_agent.retrieval.agent_invoke(
+        "可缓存问题", "original", "vivo_x500_pro", trace=trace
+    )
+    assert trace["tools"]
+    product_agent.retrieval.agent_invoke(
+        "可缓存问题", "cached", "vivo_x500_pro", trace=trace
+    )
+    assert trace["cache_hit"] and trace["tools"] == []
+
+
+def test_validation_can_bypass_cache_without_overwriting_it(product_agent):
+    query, trace = "独立验证", {}
+    key = product_agent.cache.make_cache_key(query, "vivo_x500_pro")
+    product_agent.cache.values[key] = "不能解析的旧缓存"
+    product_agent.retrieval.agent_invoke(
+        query, "validation", "vivo_x500_pro", trace=trace, use_cache=False
+    )
+    assert trace["tools"] and not trace["cache_hit"]
+    assert product_agent.cache.values[key] == "不能解析的旧缓存"
+
+
+def test_followup_uses_new_product_and_neutral_topic_without_copying_notes(
+    product_agent,
+):
+    first, second, returned = {}, {}, {}
+    entry = product_agent.retrieval
+    entry.agent_invoke(
+        "请记住备注 NOTE-PRO。X500 Pro 支持无线充电吗？",
+        "week7",
+        "vivo_x500_pro",
+        trace=first,
+        use_cache=False,
+        follow_conversation=True,
+    )
+    entry.agent_invoke(
+        "那普通版呢？",
+        "week7",
+        "vivo_x500_pro",
+        trace=second,
+        use_cache=False,
+        follow_conversation=True,
+    )
+    assert second["product_id"] == "vivo_x500"
+    assert second["history_turns"] == 0 and "无线充电" in second["resolved_question"]
+    assert "NOTE-PRO" not in second["resolved_question"]
+    assert second["steps"] == [
+        "resolve_context",
+        "llm_call",
+        "tool_node",
+        "llm_call",
+        "final_answer",
+    ]
+    assert all(
+        call["arguments"]["product_id"] == "vivo_x500" for call in second["tools"]
+    )
+    assert all(
+        source == "x500.md" for call in second["tools"] for source in call["sources"]
+    )
+    state = entry.agent.get_state(make_thread_config("week7", "vivo_x500")).values
+    assert all("NOTE-PRO" not in m.content for m in state["messages"])
+    entry.agent_invoke(
+        "回到 X500 Pro：我给这款的备注是什么？",
+        "week7",
+        "vivo_x500",
+        trace=returned,
+        use_cache=False,
+        follow_conversation=True,
+    )
+    assert returned["product_id"] == "vivo_x500_pro" and returned["history_turns"] == 1
+    pro_state = entry.agent.get_state(
+        make_thread_config("week7", "vivo_x500_pro")
+    ).values
+    assert "NOTE-PRO" in pro_state["messages"][0].content
+    history = product_agent.cache.get_chat_history("week7").messages
+    assert history[2].content == "那普通版呢？"
+
+
+def test_context_survives_module_reload_and_isolated_sessions(
+    product_agent, monkeypatch
+):
+    entry = product_agent.retrieval
+    entry.agent_invoke(
+        "X500 Pro 支持无线充电吗？",
+        "persistent",
+        None,
+        use_cache=False,
+        follow_conversation=True,
+    )
+    path = Path(__file__).resolve().parents[1] / "backend" / "retrieval.py"
+    spec = importlib.util.spec_from_file_location("week7_reloaded", path)
+    reloaded = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(reloaded)
+    trace = {}
+    reloaded.agent_invoke(
+        "那普通版呢？",
+        "persistent",
+        None,
+        trace=trace,
+        use_cache=False,
+        follow_conversation=True,
+    )
+    assert (
+        trace["product_id"] == "vivo_x500" and "无线充电" in trace["resolved_question"]
+    )
+    other_trace = {}
+    answer, citations, _ = reloaded.agent_invoke(
+        "那普通版呢？",
+        "different-session",
+        None,
+        trace=other_trace,
+        follow_conversation=True,
+    )
+    assert other_trace["clarification"] and not citations
+    assert other_trace["tools"] == [] and "请" in answer
+
+
+def test_cached_answer_updates_session_context_but_followup_cache_keys_are_resolved(
+    product_agent,
+):
+    entry = product_agent.retrieval
+    query = "X500 Pro 支持无线充电吗？"
+    entry.agent_invoke(
+        query, "original-context", "vivo_x500_pro", follow_conversation=True
+    )
+    trace = {}
+    entry.agent_invoke(
+        query, "cached-context", "vivo_x500_pro", trace=trace, follow_conversation=True
+    )
+    assert trace["cache_hit"]
+    entry.agent_invoke(
+        "那普通版呢？", "cached-context", None, trace=trace, follow_conversation=True
+    )
+    assert trace["product_id"] == "vivo_x500"
+    assert "无线充电" in trace["resolved_question"]
+    unresolved_key = product_agent.cache.make_cache_key("那普通版呢？", "vivo_x500")
+    assert unresolved_key not in product_agent.cache.values
+
+
+def test_automatic_product_switch_is_opt_in(product_agent):
+    trace = {}
+    product_agent.retrieval.agent_invoke(
+        "那普通版呢？", "strict-scope", "vivo_x500_pro", trace=trace, use_cache=False
+    )
+    assert trace["product_id"] == "vivo_x500_pro"
+    assert "resolve_context" not in trace["steps"]
+
+
+def test_missing_topic_clarifies_without_model_or_tools(product_agent):
+    trace = {}
+    answer, citations, _ = product_agent.retrieval.agent_invoke(
+        "那普通版呢？",
+        "no-topic",
+        "vivo_x500_pro",
+        trace=trace,
+        follow_conversation=True,
+    )
+    assert not product_agent.model.tool_inputs and not product_agent.model.answer_inputs
+    assert not citations and "请明确" in answer
+    assert trace["steps"] == ["resolve_context", "clarify"]
+
+
+def test_missing_citation_gets_one_grounded_repair(product_agent, monkeypatch):
+    calls = []
+
+    def invoke(messages):
+        calls.append(messages)
+        return AIMessage(
+            content="支持无线充电，最高50W。"
+            if len(calls) == 1
+            else "支持无线充电，最高50W。[1]"
+        )
+
+    monkeypatch.setattr(product_agent.model, "invoke", invoke)
+    answer, citations, _ = product_agent.retrieval.agent_invoke(
+        "这款支持无线充电吗？", "repair", "vivo_x500_pro", use_cache=False
+    )
+    assert len(calls) == 2 and "[1]" in answer
+    assert citations and all(c.source == "x500_pro.md" for c in citations)
+
+
+def test_citation_repair_never_fabricates_source_numbers(product_agent, monkeypatch):
+    calls = []
+
+    def invoke(messages):
+        calls.append(messages)
+        return AIMessage(content="支持无线充电。[999]")
+
+    monkeypatch.setattr(product_agent.model, "invoke", invoke)
+    answer, citations, _ = product_agent.retrieval.agent_invoke(
+        "这款支持无线充电吗？", "invalid-repair", "vivo_x500_pro", use_cache=False
+    )
+    assert len(calls) == 2 and not citations and "[999]" not in answer
+    assert "有效引用" in answer
+
+
+def test_missing_information_does_not_get_a_forced_citation(product_agent):
+    product_agent.model.answer = "暂未查询到相关信息。当前资料未提供 L2 缓存容量。"
+    answer, citations, _ = product_agent.retrieval.agent_invoke(
+        "L2 缓存容量是多少？", "missing-info", "vivo_x500_pro", use_cache=False
+    )
+    assert len(product_agent.model.answer_inputs) == 1 and not citations
+    assert "暂未查询到" in answer
+
+
+def test_personal_memory_is_not_forced_to_cite_product_data(product_agent):
+    product_agent.model.answer = "NOTE-USER[1]"
+    answer, citations, _ = product_agent.retrieval.agent_invoke(
+        "我给这款的备注代号是什么？",
+        "note-no-citation",
+        "vivo_x500_pro",
+        use_cache=False,
+    )
+    assert answer == "NOTE-USER" and not citations
+    assert len(product_agent.model.answer_inputs) == 1
+
+
+def test_resolved_negative_wireless_field_is_a_known_fact_not_missing_data(
+    product_agent, monkeypatch
+):
+    tool_result = business_tools.product_info_tool.invoke(
+        {
+            "type": "tool_call",
+            "name": "product_info_tool",
+            "id": "base-info",
+            "args": {"product_id": "vivo_x500"},
+        }
+    )
+
+    def no_guessing(messages):
+        pytest.fail("工具已明确不支持，不应再次生成或猜测功率")
+
+    monkeypatch.setattr(product_agent.model, "invoke", no_guessing)
+    state = {
+        "product_id": "vivo_x500",
+        "messages": [
+            HumanMessage(
+                content="这款支持无线充电吗？",
+                additional_kwargs={"resolved_topics": ["wireless"]},
+            ),
+            tool_result,
+        ],
+    }
+    result = product_agent.nodes.final_answer(state)["messages"][0]
+    assert "不支持无线充电" in result.content and "不适用" in result.content
+    assert result.additional_kwargs["citations"][0]["source"] == "product_business.json"

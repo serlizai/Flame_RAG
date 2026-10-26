@@ -25,6 +25,7 @@ env/
 /chroma_db*/
 /data/*
 !/data/products.json
+!/data/product_business.json
 !/data/products/
 /data/products/*
 !/data/products/*.md

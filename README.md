@@ -12,21 +12,29 @@ Flame 使用本地 BGE-M3 和 Chroma 检索商品资料，再通过 LangGraph �
 
 需要 Python 3.11 及以上、[uv](https://docs.astral.sh/uv/) 和已下载的 BGE-M3 模型。完整问答服务还需要 Redis，以及支持工具调用的 OpenAI 兼容聊天服务。
 
-从项目根目录执行：
+本机使用已安装的 Python 3.12，项目的 `.python-version` 已固定为 `3.12`。Windows PowerShell 从项目根目录执行：
+
+```powershell
+Set-Location F:\shkj\Flame_RAG
+uv sync --locked --python D:\python\python.exe --no-python-downloads
+.\.venv\Scripts\python.exe --version
+```
+
+本机环境配置及剩余步骤见 [Windows 配置说明](docs/Windows_Setup.md)。其他机器按实际路径选择已安装的 Python 3.12，例如：
 
 ```bash
 cd /Users/lwj/AI_project/flame
-uv sync --locked --python 3.11
+uv sync --locked --python 3.12 --no-python-downloads
 source .venv/bin/activate
 python --version
 ```
 
 `uv sync` 根据 `pyproject.toml` 和 `uv.lock` 创建独立的 `.venv`，默认包含 pytest、Ruff 等开发依赖。后续使用 `uv run` 会自动选择本项目环境，无需先激活。其他机器请修改上面的项目路径。
 
-编辑器的 Python 解释器应选择：
+本机编辑器的 Python 解释器应选择：
 
 ```text
-/Users/lwj/AI_project/flame/.venv/bin/python
+F:\shkj\Flame_RAG\.venv\Scripts\python.exe
 ```
 
 ## 2. 配置环境变量
@@ -42,6 +50,7 @@ cp .env.example .env
 ```dotenv
 OPENAI_API_KEY=填写聊天服务的密钥
 OPENAI_BASE_URL=填写聊天服务的 OpenAI 兼容接口地址
+OPENAI_MODEL=填写聊天服务支持的模型名
 BGE_M3_PATH=/Users/lwj/AI_project/RAG/models/BAAI/bge-m3
 EMBEDDING_DEVICE=cpu
 CHROMA_PERSIST_DIRECTORY=chroma_db
@@ -50,7 +59,7 @@ CACHE_TTL=3600
 CHECKPOINT_SQLITE_PATH=data/checkpoints.sqlite
 ```
 
-`backend/config.py` 中的聊天模型名目前是 `qwen3.8-27b`，需与服务提供方支持的模型名一致。聊天服务必须支持工具调用。其他机器需要修改本地模型路径。
+通过 `.env` 中的 `OPENAI_MODEL` 设置聊天模型名，未设置时默认使用 `qwen3.8-27b`，需与服务提供方支持的模型名一致。聊天服务必须支持工具调用。其他机器需要修改本地模型路径。
 
 商品 Agent 和商品评测默认读取 `chroma_db_products/` 的 `products` 集合；`CHROMA_PERSIST_DIRECTORY` 仅用于可选的 PDF 导入工具。`.env`、`.venv`、向量库和模型文件均被 Git 忽略。
 

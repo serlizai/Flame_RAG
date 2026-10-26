@@ -78,10 +78,10 @@ def test_backend_tool_reads_product_collection_from_project_root(
     tools = load_module(
         "flame_product_tools_test", source_root / "backend" / "tools.py", monkeypatch
     )
-    result = tools.retrieve_product_docs.invoke(
+    result = tools.product_rag_tool.invoke(
         {
             "type": "tool_call",
-            "name": "retrieve_product_docs",
+            "name": "product_rag_tool",
             "id": "product-retrieval",
             "args": {"query": "这款有什么卖点？", "product_id": product_id},
         }

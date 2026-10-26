@@ -13,7 +13,7 @@ from settings import PROJECT_ROOT
 
 # 模型配置示例：model = init_chat_model("openai:gpt-5.5", temperature=0)
 model = init_chat_model(
-    model="qwen3.8-27b",
+    model=os.getenv("OPENAI_MODEL") or "qwen3.8-27b",
     model_provider="openai",
     api_key=os.getenv("OPENAI_API_KEY"),
     base_url=os.getenv("OPENAI_BASE_URL"),

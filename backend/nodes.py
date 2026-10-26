@@ -4,21 +4,25 @@ from dataclasses import asdict
 from langchain.messages import SystemMessage, ToolMessage, AIMessage, HumanMessage
 from backend.state import MessagesState
 from typing import Literal
-from backend.tools import retrieve_product_docs
+import re
+from backend.tools import product_rag_tool
+from backend.business_tools import product_info_tool, price_tool, after_sales_tool
 from backend.config import model
 from backend.citation import Citation, resolve_answer_citations
 from backend.prompts import QA_PROMPT, build_system_prompt
 from backend.products import load_products
+from backend.conversation import is_memory_question
+from backend.grounding import grounded_parameter_answer
 
 
 # 定义模型可调用的工具
 # --------------
-tools = [retrieve_product_docs]
+tools = [product_rag_tool, product_info_tool, price_tool, after_sales_tool]
 tools_by_name = {tool.name: tool for tool in tools}
 model_with_tools = model.bind_tools(tools)
 
 # 旧版会话可能保存了尚未执行的旧名称调用，模型只绑定上面的新工具。
-_LEGACY_RETRIEVAL_TOOL_NAME = "retrieve_docs"
+_LEGACY_RETRIEVAL_TOOL_NAMES = {"retrieve_docs", "retrieve_product_docs"}
 
 
 def _messages_for_model(messages):
@@ -27,27 +31,27 @@ def _messages_for_model(messages):
     for message in messages:
         if isinstance(message, AIMessage) and (
             any(
-                call["name"] == _LEGACY_RETRIEVAL_TOOL_NAME
+                call["name"] in _LEGACY_RETRIEVAL_TOOL_NAMES
                 for call in message.tool_calls
             )
             or any(
-                call.get("function", {}).get("name") == _LEGACY_RETRIEVAL_TOOL_NAME
+                call.get("function", {}).get("name") in _LEGACY_RETRIEVAL_TOOL_NAMES
                 for call in message.additional_kwargs.get("tool_calls", [])
             )
         ):
             message = message.model_copy(deep=True)
             for call in message.tool_calls:
-                if call["name"] == _LEGACY_RETRIEVAL_TOOL_NAME:
-                    call["name"] = retrieve_product_docs.name
+                if call["name"] in _LEGACY_RETRIEVAL_TOOL_NAMES:
+                    call["name"] = product_rag_tool.name
             # 同步保留在附加字段中的原始服务商格式，避免混入旧名称。
             for call in message.additional_kwargs.get("tool_calls", []):
-                if call.get("function", {}).get("name") == _LEGACY_RETRIEVAL_TOOL_NAME:
-                    call["function"]["name"] = retrieve_product_docs.name
+                if call.get("function", {}).get("name") in _LEGACY_RETRIEVAL_TOOL_NAMES:
+                    call["function"]["name"] = product_rag_tool.name
         elif (
             isinstance(message, ToolMessage)
-            and message.name == _LEGACY_RETRIEVAL_TOOL_NAME
+            and message.name in _LEGACY_RETRIEVAL_TOOL_NAMES
         ):
-            message = message.model_copy(update={"name": retrieve_product_docs.name})
+            message = message.model_copy(update={"name": product_rag_tool.name})
         converted.append(message)
     return converted
 
@@ -107,11 +111,11 @@ def tool_node(state: dict):
         max((c.number for c in _context_citations(state["messages"])), default=0) + 1
     )
     for tool_call in state["messages"][-1].tool_calls:
-        if tool_call["name"] == _LEGACY_RETRIEVAL_TOOL_NAME:
-            tool_call = {**tool_call, "name": retrieve_product_docs.name}
+        if tool_call["name"] in _LEGACY_RETRIEVAL_TOOL_NAMES:
+            tool_call = {**tool_call, "name": product_rag_tool.name}
         tool = tools_by_name[tool_call["name"]]
         # 覆盖模型可能提交的同名参数，商品范围只信任服务端 State。
-        if tool.name == retrieve_product_docs.name:
+        if tool.name in tools_by_name:
             tool_call = {
                 **tool_call,
                 "args": {
@@ -142,17 +146,66 @@ def final_answer(state: dict):
         m.content for m in reversed(messages) if isinstance(m, HumanMessage)
     )
 
+    last_user = max(
+        i for i, message in enumerate(messages) if isinstance(message, HumanMessage)
+    )
+    grounded = grounded_parameter_answer(question, messages, state.get("product_id"))
+
     qa_prompt = QA_PROMPT.format(context=context, input=question)
 
-    result = model.invoke(
-        [_system_message(state)]
-        + _messages_for_model(messages)
-        + [HumanMessage(content=qa_prompt)]
+    result = (
+        AIMessage(content=grounded[0])
+        if grounded
+        else model.invoke(
+            [_system_message(state)]
+            + _messages_for_model(messages)
+            + [HumanMessage(content=qa_prompt)]
+        )
     )
 
+    available_citations = _context_citations(messages)
     resolved_answer, kept_citations = resolve_answer_citations(
-        result.content, _context_citations(messages)
+        result.content, available_citations
     )
+    if is_memory_question(question):
+        resolved_answer, kept_citations = resolve_answer_citations(result.content, [])
+    current_evidence = any(
+        isinstance(message, ToolMessage) and message.artifact
+        for message in messages[last_user + 1 :]
+    )
+    missing_information = bool(
+        re.match(
+            r"^[\s*]*(?:暂未查询到|未查询到|没有找到|当前资料未提供)", resolved_answer
+        )
+    )
+    if (
+        current_evidence
+        and available_citations
+        and not kept_citations
+        and not missing_information
+        and not is_memory_question(question)
+    ):
+        # 只重试一次，不把所有检索结果自动当成答案引用。
+        repair = model.invoke(
+            [
+                _system_message(state),
+                HumanMessage(
+                    content=qa_prompt
+                    + "\n\n上次回答没有可核验的引用编号。请重新依据上方工具结果回答，只回答用户所问。"
+                    "每个已证实的商品事实后必须写实际存在的 [编号]；没有依据、备注或资料缺失说明不引用。"
+                    "不要补充未询问的包装或其他参数，不得编造编号。"
+                ),
+            ]
+        )
+        resolved_answer, kept_citations = resolve_answer_citations(
+            repair.content, available_citations
+        )
+        if not kept_citations and not re.match(
+            r"^[\s*]*(?:暂未查询到|未查询到|没有找到|当前资料未提供)", resolved_answer
+        ):
+            resolved_answer = (
+                "暂未生成带有效引用的回答，请重试或查看本轮工具返回的原文。"
+            )
     sources = "\n".join(f"[{c.number}] {c.label}" for c in kept_citations)
     content = (
         f"{resolved_answer}\n\nSources:\n{sources}"
