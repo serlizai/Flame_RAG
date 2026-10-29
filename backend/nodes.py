@@ -12,7 +12,15 @@ from backend.citation import Citation, resolve_answer_citations
 from backend.prompts import QA_PROMPT, build_system_prompt
 from backend.products import load_products
 from backend.conversation import is_memory_question
-from backend.grounding import grounded_parameter_answer
+from backend.grounding import grounded_feature_excerpt, grounded_parameter_answer
+from backend.business_answers import (
+    business_product,
+    complete_business_calls,
+    current_turn,
+    focused_business_question,
+    grounded_business_answer,
+    required_business_tools,
+)
 
 
 # 定义模型可调用的工具
@@ -88,14 +96,27 @@ def _system_message(state: dict):
 # 语言模型调用节点
 # ---------
 def llm_call(state: dict):
-    """让语言模型根据当前消息决定是否调用工具。"""
-
+    """模型选择工具，程序补齐明确业务请求中遗漏的专用工具。"""
+    question, turn = current_turn(state["messages"])
+    required = required_business_tools(question)
+    product = business_product(question, state.get("product_id")) if required else None
+    focused = focused_business_question(question)
+    completed = {m.name for m in turn if isinstance(m, ToolMessage)}
+    if product and required and focused and set(required) <= completed:
+        # 所需业务工具已真实执行，进入字段呈现；不让模型重复调用或改用其他来源。
+        return {"messages": [AIMessage(content="")]}
+    response = model_with_tools.invoke(
+        [_system_message(state)] + _messages_for_model(state["messages"])
+    )
+    calls = complete_business_calls(
+        question, product, response.tool_calls, completed, focused=focused
+    )
+    if calls != response.tool_calls:
+        response = AIMessage(
+            content="" if focused else response.content, tool_calls=calls
+        )
     return {
-        "messages": [
-            model_with_tools.invoke(
-                [_system_message(state)] + _messages_for_model(state["messages"])
-            )
-        ],
+        "messages": [response],
         "llm_calls": state.get("llm_calls", 0) + 1,
     }
 
@@ -149,7 +170,11 @@ def final_answer(state: dict):
     last_user = max(
         i for i, message in enumerate(messages) if isinstance(message, HumanMessage)
     )
-    grounded = grounded_parameter_answer(question, messages, state.get("product_id"))
+    grounded = grounded_business_answer(question, messages, state.get("product_id"))
+    if grounded is None:
+        grounded = grounded_parameter_answer(
+            question, messages, state.get("product_id")
+        )
 
     qa_prompt = QA_PROMPT.format(context=context, input=question)
 
@@ -173,6 +198,12 @@ def final_answer(state: dict):
         isinstance(message, ToolMessage) and message.artifact
         for message in messages[last_user + 1 :]
     )
+    if current_evidence and not kept_citations:
+        excerpt = grounded_feature_excerpt(question, messages, state.get("product_id"))
+        if excerpt:
+            resolved_answer, kept_citations = resolve_answer_citations(
+                excerpt[0], excerpt[1]
+            )
     missing_information = bool(
         re.match(
             r"^[\s*]*(?:暂未查询到|未查询到|没有找到|当前资料未提供)", resolved_answer

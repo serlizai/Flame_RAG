@@ -42,6 +42,51 @@ def _wireless_value(citation, product):
     return None
 
 
+def grounded_feature_excerpt(question, messages, product_id):
+    """生成回答漏引用时，只呈现本轮当前商品核心卖点的原文。"""
+    if not re.search(r"卖点|特点|优势", question) or is_memory_question(question):
+        return None
+    if re.search(
+        r"颜色|配色|价格|报价|售价|多少钱|售后|退货|换货|保修|参数|功率|容量|尺寸|材质|无线|有线|处理器|缓存|重量|包装|对比|比较|区别|怎么|如何",
+        question,
+    ):
+        return None
+    product = load_products().get(product_id)
+    if product is None:
+        return None
+    last_user = max(
+        (i for i, m in enumerate(messages) if isinstance(m, HumanMessage)), default=-1
+    )
+    for message in reversed(messages[last_user + 1 :]):
+        if (
+            not isinstance(message, ToolMessage)
+            or message.status != "success"
+            or message.name
+            not in {
+                "product_rag_tool",
+                "retrieve_product_docs",
+                "retrieve_docs",
+            }
+        ):
+            continue
+        for item in message.artifact or []:
+            citation = Citation(**item) if isinstance(item, dict) else item
+            if (
+                not citation.label.startswith(product.name + ", ")
+                or "核心卖点" not in citation.label
+            ):
+                continue
+            match = re.search(
+                r"^##\s+核心卖点\s*\n(.+?)(?=^##\s|\Z)", citation.snippet, re.M | re.S
+            )
+            if match and match.group(1).strip():
+                return (
+                    f"以下为{product.name}演示资料中的核心卖点原文：\n{match.group(1).strip()}[{citation.number}]",
+                    [citation],
+                )
+    return None
+
+
 def grounded_parameter_answer(question, messages, product_id):
     """仅处理单一无线充参数；事实与编号必须来自本轮已执行工具的同一条引用。"""
     if not re.search(r"无线充", question) or is_memory_question(question):

@@ -180,6 +180,46 @@ def test_model_is_bound_to_four_business_tools(product_agent):
     assert not hasattr(product_agent.tools, "retrieve_docs")
 
 
+def test_business_graph_completes_mixed_tools_when_model_only_proposes_rag(
+    product_agent,
+):
+    """正式图执行三类业务工具，不靠模型恰好选全或恰好写出引用。"""
+    trace = {}
+    answer, citations, _ = product_agent.retrieval.agent_invoke(
+        "这款有哪些颜色，16+512多少钱，七天能退吗？",
+        "mixed-business-policy",
+        "vivo_x500_pro",
+        trace=trace,
+        use_cache=False,
+    )
+    assert {t["name"] for t in trace["tools"]} == {
+        "product_info_tool",
+        "price_tool",
+        "after_sales_tool",
+    }
+    assert "月光银" in answer and "3999" in answer and "未激活" in answer
+    assert len(citations) == 3
+    assert not product_agent.model.answer_inputs
+    assert (
+        product_agent.cache.get(
+            product_agent.cache.make_cache_key(
+                "这款有哪些颜色，16+512多少钱，七天能退吗？", "vivo_x500_pro"
+            )
+        )
+        is None
+    )
+
+
+def test_business_graph_unavailable_variant_never_uses_old_or_other_variant_price(
+    product_agent,
+):
+    entry = product_agent.retrieval.agent_invoke
+    first, first_citations, _ = entry("16+512多少钱？", "price-policy", "vivo_x500_pro")
+    assert "3999" in first and first_citations
+    answer, citations, _ = entry("12+512多少钱？", "price-policy", "vivo_x500_pro")
+    assert "暂未查询到指定规格" in answer and "3999" not in answer and not citations
+
+
 @pytest.mark.parametrize("legacy_name", ["retrieve_docs", "retrieve_product_docs"])
 def test_legacy_pending_call_uses_new_tool_and_state_filter(product_agent, legacy_name):
     """旧检查点中未执行的调用也要使用 State 商品过滤，不能扩大范围。"""
@@ -517,13 +557,18 @@ def test_business_answers_do_not_reuse_shared_cache_after_price_update(
     monkeypatch.setattr(
         product_agent.nodes, "model_with_tools", SimpleNamespace(invoke=choose)
     )
-    product_agent.retrieval.agent_invoke("多少钱", "before", "vivo_x500_pro")
+    before, before_citations, _ = product_agent.retrieval.agent_invoke(
+        "多少钱", "before", "vivo_x500_pro"
+    )
     source["products"]["vivo_x500_pro"]["variants"][0]["price_fen"] = 10000
     path.write_text(json.dumps(source), encoding="utf-8")
-    product_agent.retrieval.agent_invoke("多少钱", "after", "vivo_x500_pro")
+    after, after_citations, _ = product_agent.retrieval.agent_invoke(
+        "多少钱", "after", "vivo_x500_pro"
+    )
     assert not product_agent.cache.values
-    latest = product_agent.model.answer_inputs[-1]
-    assert any('"price_fen": 10000' in m.content for m in latest)
+    assert "3999 元" in before and before_citations
+    assert "100 元" in after and "3999" not in after and after_citations
+    assert '"price_fen": 10000' in after_citations[0].snippet
 
 
 def test_agent_trace_contains_only_current_turn(product_agent):
@@ -736,6 +781,37 @@ def test_citation_repair_never_fabricates_source_numbers(product_agent, monkeypa
     )
     assert len(calls) == 2 and not citations and "[999]" not in answer
     assert "有效引用" in answer
+
+
+def test_feature_answer_without_citations_uses_real_excerpt_not_generated_claims(
+    product_agent,
+):
+    citation = Citation(
+        4,
+        "vivo X500 Pro, 核心卖点",
+        "## 核心卖点\n真实卖点字段，按资料展示。",
+        "x500_pro.md",
+    )
+    product_agent.model.answer = "模型编造了不存在的功能。"
+    state = {
+        "product_id": "vivo_x500_pro",
+        "messages": [
+            HumanMessage(content="这款有什么卖点？"),
+            ToolMessage(
+                content=citation.snippet,
+                name="product_rag_tool",
+                tool_call_id="features",
+                artifact=[citation],
+            ),
+        ],
+    }
+    answer = product_agent.nodes.final_answer(state)["messages"][0]
+    assert (
+        "真实卖点字段，按资料展示。" in answer.content
+        and "不存在的功能" not in answer.content
+    )
+    assert answer.additional_kwargs["citations"][0]["source"] == "x500_pro.md"
+    assert len(product_agent.model.answer_inputs) == 1
 
 
 def test_missing_information_does_not_get_a_forced_citation(product_agent):

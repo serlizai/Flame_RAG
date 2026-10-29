@@ -2,7 +2,8 @@
 export async function sendChatMessage({
   productId,
   message,
-  sessionId = null
+  sessionId = null,
+  followConversation = true
 }) {
   const response = await fetch('/api/chat', {
     method: 'POST',
@@ -12,7 +13,8 @@ export async function sendChatMessage({
     body: JSON.stringify({
       product_id: productId,
       message,
-      session_id: sessionId
+      session_id: sessionId,
+      follow_conversation: followConversation
     })
   })
 

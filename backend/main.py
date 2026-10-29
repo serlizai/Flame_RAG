@@ -29,7 +29,7 @@ class QueryRequest(BaseModel):
 
 
 class QueryResponse(BaseModel):
-    """返回回答、引用、会话编号和本轮接收的商品 ID。"""
+    """返回回答、引用、会话编号和本轮实际解析的商品 ID。"""
 
     answer: str
     citations: list[Citation]
