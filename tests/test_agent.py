@@ -1,12 +1,27 @@
 """需要真实模型、已建语料库和 Redis 的可选链路冒烟测试。"""
 
 import os
+import json
 import re
 import uuid
 
 import pytest
 
 from backend.sessions import make_thread_config, make_thread_id
+
+
+def assert_product_evidence(citations, product_id, source, store):
+    """基础参数可来自商品接口，知识引用必须来自当前商品真实向量库。"""
+    documents = set(
+        store.get(where={"product_id": product_id}, include=["documents"])["documents"]
+    )
+    assert citations
+    for citation in citations:
+        if citation.source == "product_business.json":
+            record = json.loads(citation.snippet.split("\n", 1)[1])
+            assert record["product_id"] == product_id and record["demo"] is True
+        else:
+            assert citation.source == source and citation.snippet in documents
 
 
 @pytest.mark.skipif(
@@ -27,19 +42,19 @@ def test_api_answers_household_product_questions():
     cases = [
         (
             "flame_kettle_k1",
-            "kettle_k1.md",
+            "product_business.json",
             "这款的容量和额定功率是多少？",
             ("1.7", "1800"),
         ),
         (
             "flame_thermos_t1",
-            "thermos_t1.md",
+            "product_business.json",
             "这款的容量和内胆材质是什么？",
             ("500", "316L"),
         ),
         (
             "flame_storage_box_s1",
-            "storage_box_s1.md",
+            "product_business.json",
             "这款的容量和单箱额定载重是多少？",
             ("45", "10"),
         ),
@@ -74,7 +89,7 @@ def test_api_answers_household_product_questions():
                     message for message in messages if isinstance(message, ToolMessage)
                 ]
                 assert results and all(
-                    message.name == "retrieve_product_docs" for message in results
+                    message.name == "product_info_tool" for message in results
                 )
                 print(
                     f"真实 HTTP 生活用品验收通过：{product_id}；回答：{payload['answer']}"
@@ -113,8 +128,10 @@ def test_agent_answers_a_document_question():
         assert isinstance(answer, str) and answer
         assert returned_session_id == session_id
         assert "50" in answer
-        assert citations, "商品回答必须返回资料引用。"
-        assert any(c.source == "x500_pro.md" for c in citations)
+        assert citations, f"商品回答必须返回资料引用。实际回答：{answer}"
+        assert_product_evidence(
+            citations, "vivo_x500_pro", "x500_pro.md", product_vector_store
+        )
 
         # 从真实图状态确认工具已经执行，不能仅凭非空回答认定链路通过。
         state = agent.get_state(config).values
@@ -123,17 +140,19 @@ def test_agent_answers_a_document_question():
             message for message in state["messages"] if isinstance(message, ToolMessage)
         ]
         assert any(
-            message.name == "retrieve_product_docs" and message.artifact
+            message.name in {"product_rag_tool", "product_info_tool"}
+            and message.artifact
             for message in tool_messages
-        ), "真实 Agent 必须执行商品检索工具。"
+        ), "真实 Agent 必须执行商品知识或基础参数工具。"
 
         # 引用编号须与回答一致，原文须来自当前真实商品库。
         numbers = {int(number) for number in re.findall(r"\[(\d+)\]", answer)}
         assert numbers == {citation.number for citation in citations}
-        documents = set(product_vector_store.get(include=["documents"])["documents"])
-        assert all(citation.snippet in documents for citation in citations)
         assert len(cache.get_chat_history(session_id).messages) == 2
-        assert cache.get(cache.make_cache_key(query)) is not None
+        has_business = any(
+            message.name == "product_info_tool" for message in tool_messages
+        )
+        assert (cache.get(cache.make_cache_key(query)) is None) == has_business
         print(
             f"真实 Agent 验收通过：工具调用 {len(tool_messages)} 次，"
             f"返回 {len(citations)} 条引用；回答：{answer}"
@@ -158,7 +177,7 @@ def test_agent_keeps_product_state_on_cache_and_switch():
     session_id = f"flame-state-test-{identifier}"
     cached_session_id = f"flame-state-cached-{identifier}"
     pro_query = (
-        "请根据商品资料说明 vivo X500 Pro 是否支持无线充电、最高功率是多少，并附引用。"
+        "vivo X500 Pro 有哪些核心卖点？请查询商品知识库并附引用。"
         f"（验收编号 {identifier}，无需重复编号。）"
     )
     base_query = (
@@ -171,7 +190,8 @@ def test_agent_keeps_product_state_on_cache_and_switch():
 
     try:
         answer, citations, _ = agent_invoke(pro_query, session_id, "vivo_x500_pro")
-        assert "50" in answer and citations
+        assert answer and citations
+        assert {c.source for c in citations} == {"x500_pro.md"}
         assert state_for(session_id)["product_id"] == "vivo_x500_pro"
 
         # 同商品答案跨会话命中时，新会话也必须获得自己的状态和消息。
@@ -243,7 +263,7 @@ def test_agent_filters_current_product_for_implicit_question():
                 query, session_id, product_id
             )
             assert returned_session == session_id
-            assert citations and {c.source for c in citations} == {source}
+            assert_product_evidence(citations, product_id, source, product_vector_store)
             if product_id == "vivo_x500":
                 assert "不支持" in answer
                 assert "50W" not in answer and "50 W" not in answer
@@ -255,7 +275,8 @@ def test_agent_filters_current_product_for_implicit_question():
             active_messages = state["messages"]
             tool_messages = [m for m in active_messages if isinstance(m, ToolMessage)]
             assert tool_messages and all(
-                m.name == "retrieve_product_docs" for m in tool_messages
+                m.name in {"product_rag_tool", "product_info_tool"}
+                for m in tool_messages
             )
             for message in tool_messages:
                 assert message.artifact
@@ -263,13 +284,7 @@ def test_agent_filters_current_product_for_implicit_question():
                     c["source"] if isinstance(c, dict) else c.source
                     for c in message.artifact
                 }
-                assert sources == {source}
-            documents = set(
-                product_vector_store.get(
-                    where={"product_id": product_id}, include=["documents"]
-                )["documents"]
-            )
-            assert all(c.snippet in documents for c in citations)
+                assert sources <= {source, "product_business.json"}
             if first_state is None:
                 first_state = state
             print(f"真实过滤通过：{product_id}，仅召回 {source}；回答：{answer}")
@@ -280,9 +295,9 @@ def test_agent_filters_current_product_for_implicit_question():
         )
         after = agent.get_state(make_thread_config(session_id, "vivo_x500_pro")).values
         assert "50" in returned_answer
-        assert returned_citations and {c.source for c in returned_citations} == {
-            "x500_pro.md"
-        }
+        assert_product_evidence(
+            returned_citations, "vivo_x500_pro", "x500_pro.md", product_vector_store
+        )
         assert after["product_id"] == "vivo_x500_pro"
         assert (
             after["messages"][: len(first_state["messages"])] == first_state["messages"]
@@ -331,9 +346,13 @@ def test_agent_product_prompt_handles_identity_facts_unknown_and_memory():
             known_query, product_session, "vivo_x500_pro"
         )
         assert "50" in known and known_citations
-        assert {c.source for c in known_citations} == {"x500_pro.md"}
+        assert {c.source for c in known_citations} <= {
+            "x500_pro.md",
+            "product_business.json",
+        }
         assert any(
-            isinstance(m, ToolMessage) and m.name == "retrieve_product_docs"
+            isinstance(m, ToolMessage)
+            and m.name in {"product_rag_tool", "product_info_tool"}
             for m in agent.get_state(config).values["messages"]
         )
 

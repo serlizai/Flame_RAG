@@ -211,3 +211,33 @@ def test_openapi_describes_lightweight_health_response(api_client):
     operation = schema["paths"]["/api/health"]["get"]
     response = operation["responses"]["200"]["content"]["application/json"]["schema"]
     assert response["$ref"] == "#/components/schemas/HealthResponse"
+
+
+def test_conversation_mode_returns_resolved_product_without_changing_legacy_mode(
+    api_client, monkeypatch
+):
+    import sys
+    from types import SimpleNamespace
+
+    client, legacy_calls = api_client
+
+    def invoke(query, session_id, product_id, *, follow_conversation, trace):
+        assert follow_conversation and product_id == "vivo_x500_pro"
+        trace["product_id"] = "vivo_x500"
+        return "普通版不支持无线充电", [], session_id
+
+    monkeypatch.setitem(
+        sys.modules, "backend.retrieval", SimpleNamespace(agent_invoke=invoke)
+    )
+    payload = {
+        "message": "那普通版呢？",
+        "product_id": "vivo_x500_pro",
+        "session_id": "same-session",
+        "follow_conversation": True,
+    }
+    response = client.post("/api/chat", json=payload)
+    assert response.status_code == 200 and response.json()["product_id"] == "vivo_x500"
+    assert response.json()["session_id"] == "same-session" and legacy_calls == []
+    payload["follow_conversation"] = False
+    response = client.post("/api/chat", json=payload)
+    assert response.json()["product_id"] == "vivo_x500_pro" and len(legacy_calls) == 1

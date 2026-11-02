@@ -9,14 +9,16 @@ from langchain.tools import InjectedToolArg, tool
 
 
 @tool(response_format="content_and_artifact")
-def retrieve_product_docs(
+def product_rag_tool(
     query: str,
     product_id: Annotated[str | None, InjectedToolArg] = None,
     citation_start: Annotated[int, InjectedToolArg] = 1,
 ):
-    """用于查询当前商品的功能、参数说明、特点、使用方法、FAQ 和商品知识。
+    """用于查询商品卖点、功能原理、使用方法及知识类 FAQ。
 
-    涉及商品事实且已有资料不足时调用；价格或售后问题可查文档中的说明。
+    颜色、规格、SKU 查 product_info_tool；价格必须查 price_tool；退换货及保修必须查 after_sales_tool。
+    容量、功率、材质、尺寸等基础参数同样查 product_info_tool；本工具只负责知识解释和使用指南。
+    本工具不能作为价格或售后规则的依据，即使文档包含相关内容。
     当前商品由后端确定，未选商品时查询整个商品库。返回带引用编号的原文，
     只用于支持原文明示的事实，未提供所问信息时应说明暂未查询到。
 
@@ -40,3 +42,7 @@ def retrieve_product_docs(
     )
 
     return content or "暂未查询到当前检索范围内的相关信息。", citations
+
+
+# 保留旧 Python 调用入口；模型只绑定 product_rag_tool 这个正式名称。
+retrieve_product_docs = product_rag_tool

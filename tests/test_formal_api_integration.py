@@ -30,7 +30,7 @@ def test_formal_api_http_session_and_cache(tmp_path):
     session_id = f"flame-formal-api-{identifier}"
     cached_session = f"flame-formal-api-cache-{identifier}"
     marker = f"NOTE-{identifier}"
-    query = f"这款的容量是多少？请查商品资料并附引用。（验收编号 {identifier}，无需重复编号。）"
+    query = f"如何按使用说明清洁这款商品？请检索使用说明并附引用。（验收编号 {identifier}，无需重复编号。）"
     database = tmp_path / "checkpoints.sqlite"
     log_path = tmp_path / "uvicorn.log"
     environment = os.environ.copy()
@@ -107,7 +107,7 @@ def test_formal_api_http_session_and_cache(tmp_path):
         assert request("POST", "/api/chat", {"message": " "})[0] == 422
 
         first = chat("/api/chat", query)
-        assert "1.7" in first["answer"]
+        assert "断电" in first["answer"]
         assert first["citations"] and {
             citation["source"] for citation in first["citations"]
         } == {"kettle_k1.md"}
@@ -130,7 +130,7 @@ def test_formal_api_http_session_and_cache(tmp_path):
         assert marker in memory["answer"] and not memory["citations"]
 
         thermos = chat("/api/chat", query, product_id="flame_thermos_t1")
-        assert "500" in thermos["answer"]
+        assert "清洗" in thermos["answer"] or "手洗" in thermos["answer"]
         assert thermos["citations"] and {
             citation["source"] for citation in thermos["citations"]
         } == {"thermos_t1.md"}

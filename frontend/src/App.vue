@@ -2,7 +2,7 @@
 <script setup>
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { getProducts, getProductById } from './api/product'
-import { sendChatMessage } from './api/chat'
+import { useProductChat } from './composables/useProductChat'
 
 // -------------------- 商品数据 --------------------
 
@@ -133,10 +133,13 @@ onMounted(loadProducts)
 // -------------------- 聊天 --------------------
 
 const inputMessage = ref('')
-const messages = ref([])
-const isLoading = ref(false)
-const sessionId = ref(null)
 const chatContainer = ref(null)
+const {
+  messages,
+  isLoading,
+  sendMessage: sendChat,
+  newConversation: resetConversation
+} = useProductChat({ selectedId, products })
 
 const quickQuestions = [
   '这款商品有什么特点？',
@@ -145,10 +148,11 @@ const quickQuestions = [
   '售后政策是什么？'
 ]
 
-watch(selectedId, () => {
-  messages.value = []
-  sessionId.value = null
-  inputMessage.value = ''
+watch(selectedId, (productId) => {
+  const url = new URL(window.location.href)
+  if (productId) url.searchParams.set('product_id', productId)
+  else url.searchParams.delete('product_id')
+  window.history.replaceState({}, '', url)
 })
 
 async function scrollToBottom() {
@@ -168,13 +172,17 @@ function selectProduct(product) {
   selectedId.value = product.id
   scanError.value = ''
 
-  // 把当前商品 ID 同步到网址中
-  const url = new URL(window.location.href)
-  url.searchParams.set('product_id', product.id)
-
-  window.history.replaceState({}, '', url)
-
   scrollToBottom()
+}
+
+function newConversation() {
+  if (!resetConversation()) return
+  inputMessage.value = ''
+  scrollToBottom()
+}
+
+function messageProductName(productId) {
+  return products.value.find(product => product.id === productId)?.name || '商品咨询'
 }
 
 // 请求真实 AI 回答
@@ -185,47 +193,11 @@ async function sendMessage(text = inputMessage.value) {
     return
   }
 
-  const productId = selectedId.value
-
-  messages.value.push({
-    role: 'user',
-    content: question
-  })
-
   inputMessage.value = ''
-  isLoading.value = true
-
+  const pending = sendChat(question)
   await scrollToBottom()
-
-  try {
-    const result = await sendChatMessage({
-      productId,
-      message: question,
-      sessionId: sessionId.value
-    })
-
-    // 保存后端会话编号，支持多轮聊天
-    sessionId.value = result.session_id
-
-    messages.value.push({
-      role: 'assistant',
-      content: result.answer || '暂未获得有效回答。',
-      citations: Array.isArray(result.citations)
-        ? result.citations
-        : []
-    })
-  } catch (error) {
-    messages.value.push({
-      role: 'error',
-      content:
-        'AI 服务暂时无法完成回答，请检查后端模型、知识库和 Redis 是否已正常配置。'
-    })
-
-    console.error('AI 问答失败：', error)
-  } finally {
-    isLoading.value = false
-    await scrollToBottom()
-  }
+  await pending
+  await scrollToBottom()
 }
 </script>
 
@@ -474,7 +446,14 @@ async function sendMessage(text = inputMessage.value) {
               </div>
             </div>
 
-            <span class="chat-tag">AI POWERED</span>
+            <button
+              type="button"
+              class="new-chat-button"
+              :disabled="isLoading"
+              @click="newConversation"
+            >
+              新对话
+            </button>
           </div>
 
           <!-- 聊天记录 -->
@@ -509,6 +488,9 @@ async function sendMessage(text = inputMessage.value) {
               </div>
 
               <div class="message-content">
+                <span v-if="message.role === 'assistant'" class="message-product">
+                  {{ messageProductName(message.productId) }}
+                </span>
                 <div class="message-bubble">
                   {{ message.content }}
                 </div>
@@ -1188,6 +1170,27 @@ async function sendMessage(text = inputMessage.value) {
   padding: 8px 10px;
   border-radius: 30px;
   font-size: 10px;
+}
+
+.new-chat-button {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: var(--orange);
+  background: var(--orange-light);
+  cursor: pointer;
+}
+
+.new-chat-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.message-product {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 5px;
 }
 
 .chat-body {

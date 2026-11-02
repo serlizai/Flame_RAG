@@ -6,16 +6,17 @@ See the Chinese [README](README.md) for installation and the complete service fl
 
 ## Local setup
 
-Use Python 3.11 or newer. From the project root:
+The project supports Python 3.11 or newer and pins Python 3.12 for local setup.
+Use an installed Python 3.12 interpreter. From the project root:
 
 ```bash
-uv sync --locked --python 3.11
+uv sync --locked --python 3.12 --no-python-downloads
 ```
 
 Copy `.env.example` to `.env` on first setup; do not overwrite an existing `.env`.
 Set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `BGE_M3_PATH` in `.env` for your
-configured chat service and local embedding model. The chat model is configured
-in `backend/config.py`. `EMBEDDING_DEVICE` defaults to `cpu`; set it to a device
+configured chat service and local embedding model. Set `OPENAI_MODEL` to the
+provider's model name; it defaults to `qwen3.8-27b`. `EMBEDDING_DEVICE` defaults to `cpu`; set it to a device
 supported by your machine if needed.
 
 Start Redis, then build the product database and launch the app:
