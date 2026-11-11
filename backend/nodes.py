@@ -11,6 +11,7 @@ from backend.config import model
 from backend.citation import Citation, resolve_answer_citations
 from backend.prompts import QA_PROMPT, build_system_prompt
 from backend.products import load_products
+from backend.streaming import answer_stream_enabled
 from backend.conversation import is_memory_question
 from backend.grounding import grounded_feature_excerpt, grounded_parameter_answer
 from backend.business_answers import (
@@ -157,6 +158,16 @@ def tool_node(state: dict):
 # ------------------
 
 
+def _answer_model_invoke(messages, *, repair=False):
+    if answer_stream_enabled.get():
+        return model.invoke(
+            messages,
+            config={"tags": ["answer_repair" if repair else "answer_draft"]},
+            stream=not repair,
+        )
+    return model.invoke(messages)
+
+
 def final_answer(state: dict):
     """工具循环结束后生成最终回答，并校验和整理引用编号。"""
 
@@ -181,7 +192,7 @@ def final_answer(state: dict):
     result = (
         AIMessage(content=grounded[0])
         if grounded
-        else model.invoke(
+        else _answer_model_invoke(
             [_system_message(state)]
             + _messages_for_model(messages)
             + [HumanMessage(content=qa_prompt)]
@@ -217,7 +228,7 @@ def final_answer(state: dict):
         and not is_memory_question(question)
     ):
         # 只重试一次，不把所有检索结果自动当成答案引用。
-        repair = model.invoke(
+        repair = _answer_model_invoke(
             [
                 _system_message(state),
                 HumanMessage(
@@ -226,7 +237,8 @@ def final_answer(state: dict):
                     "每个已证实的商品事实后必须写实际存在的 [编号]；没有依据、备注或资料缺失说明不引用。"
                     "不要补充未询问的包装或其他参数，不得编造编号。"
                 ),
-            ]
+            ],
+            repair=True,
         )
         resolved_answer, kept_citations = resolve_answer_citations(
             repair.content, available_citations

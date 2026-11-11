@@ -165,6 +165,8 @@ async function scrollToBottom() {
   }
 }
 
+watch(() => messages.value.at(-1)?.content, scrollToBottom, { flush: 'post' })
+
 // 选择商品
 function selectProduct(product) {
   if (isLoading.value) return
@@ -491,8 +493,14 @@ async function sendMessage(text = inputMessage.value) {
                 <span v-if="message.role === 'assistant'" class="message-product">
                   {{ messageProductName(message.productId) }}
                 </span>
-                <div class="message-bubble">
+                <div v-if="message.content" class="message-bubble">
                   {{ message.content }}
+                </div>
+                <div v-if="message.streaming" class="stream-status" role="status">
+                  {{ message.status }}
+                </div>
+                <div v-if="message.interrupted" class="stream-status">
+                  回答已中断，以上为未完成内容
                 </div>
 
                 <!-- 回答引用资料 -->
@@ -520,14 +528,6 @@ async function sendMessage(text = inputMessage.value) {
               </div>
             </div>
 
-            <div v-if="isLoading" class="message-row assistant">
-              <div class="message-avatar">✦</div>
-              <div class="loading-message">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
-            </div>
           </div>
 
           <!-- 聊天输入区域 -->
@@ -1273,6 +1273,12 @@ async function sendMessage(text = inputMessage.value) {
 .error .message-bubble {
   background: #fff1ed;
   color: #a44325;
+}
+
+.stream-status {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .citation-list {

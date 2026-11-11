@@ -89,6 +89,65 @@ def tool_call(query="这款支持无线充电吗？", **kwargs):
     }
 
 
+def test_stream_emits_only_answer_draft_and_keeps_final_citations(
+    product_agent, monkeypatch
+):
+    from langchain_core.language_models.fake_chat_models import FakeListChatModel
+
+    monkeypatch.setattr(
+        product_agent.nodes,
+        "model",
+        FakeListChatModel(responses=["逐段生成的说明。[1]"]),
+    )
+    emitted = []
+    answer, citations, _ = product_agent.retrieval.agent_invoke(
+        "这款有什么特点？",
+        "stream-graph",
+        "vivo_x500_pro",
+        use_cache=False,
+        emit=lambda name, data: emitted.append((name, data)),
+    )
+    draft = "".join(data["text"] for name, data in emitted if name == "delta")
+    assert draft == "逐段生成的说明。[1]"
+    assert len([name for name, _ in emitted if name == "delta"]) > 1
+    assert "资料已检索" not in draft
+    assert answer.startswith(draft) and citations
+    history = product_agent.cache.get_chat_history("stream-graph").messages
+    assert history[-1].content == answer
+
+
+def test_stream_hides_citation_repair_and_caches_only_final_answer(
+    product_agent, monkeypatch
+):
+    from langchain_core.language_models.fake_chat_models import FakeListChatModel
+
+    monkeypatch.setattr(
+        product_agent.nodes,
+        "model",
+        FakeListChatModel(
+            responses=[
+                "支持无线充电，最高50W。[999]",
+                "支持无线充电，最高50W。[1]",
+            ]
+        ),
+    )
+    emitted = []
+    answer, citations, _ = product_agent.retrieval.agent_invoke(
+        "这款支持无线充电吗？",
+        "stream-repair",
+        "vivo_x500_pro",
+        emit=lambda name, data: emitted.append((name, data)),
+    )
+    draft = "".join(data["text"] for name, data in emitted if name == "delta")
+    assert draft == "支持无线充电，最高50W。[999]"
+    assert "[999]" not in answer and citations
+    assert (
+        product_agent.cache.get_chat_history("stream-repair").messages[-1].content
+        == answer
+    )
+    assert all("999" not in value for value in product_agent.cache.values.values())
+
+
 @pytest.fixture
 def product_agent(tmp_path, monkeypatch):
     """加载正式工具、节点、工作流和入口，使用临时商品集合。"""

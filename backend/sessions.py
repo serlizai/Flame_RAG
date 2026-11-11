@@ -2,6 +2,29 @@
 
 import hashlib
 import json
+from contextlib import contextmanager
+import threading
+
+_session_locks = {}
+_locks_guard = threading.Lock()
+
+
+@contextmanager
+def session_lock(session_id):
+    """同一会话的商品切换和历史写入串行执行，空闲锁及时释放。"""
+    with _locks_guard:
+        lock, users = _session_locks.get(session_id, (threading.Lock(), 0))
+        _session_locks[session_id] = (lock, users + 1)
+    try:
+        with lock:
+            yield
+    finally:
+        with _locks_guard:
+            _, users = _session_locks[session_id]
+            if users == 1:
+                del _session_locks[session_id]
+            else:
+                _session_locks[session_id] = (lock, users - 1)
 
 
 def make_thread_id(session_id: str, product_id: str | None = None) -> str:

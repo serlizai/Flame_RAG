@@ -2,11 +2,12 @@
 
 from dataclasses import asdict
 
-from langchain.messages import HumanMessage, AIMessage, ToolMessage
+from langchain.messages import HumanMessage, AIMessage, AIMessageChunk, ToolMessage
 from backend.state import MessagesState
 from backend.graph import agent_builder_graph
 from backend.config import cache, CACHE_TTL, checkpointer
-from backend.sessions import make_thread_config
+from backend.sessions import make_thread_config, session_lock
+from backend.streaming import answer_stream_enabled
 from backend.tracing import collect_tool_trace
 from backend.conversation import load_context, resolve_conversation, save_context
 from backend.citation import (
@@ -34,6 +35,34 @@ def agent_invoke(
     trace: dict | None = None,
     use_cache: bool = True,
     follow_conversation: bool = False,
+    emit=None,
+):
+    session_id = session_id or str(uuid.uuid4())
+    with session_lock(session_id):
+        token = answer_stream_enabled.set(emit is not None)
+        try:
+            return _agent_invoke(
+                query,
+                session_id,
+                product_id,
+                trace=trace,
+                use_cache=use_cache,
+                follow_conversation=follow_conversation,
+                emit=emit,
+            )
+        finally:
+            answer_stream_enabled.reset(token)
+
+
+def _agent_invoke(
+    query,
+    session_id,
+    product_id,
+    *,
+    trace,
+    use_cache,
+    follow_conversation,
+    emit,
 ):
     """恢复当前商品的独立状态，仅在该对话没有历史时使用答案缓存。"""
     session_id = session_id or str(uuid.uuid4())
@@ -46,6 +75,8 @@ def agent_invoke(
     )
     if resolution:
         query, product_id = resolution.question, resolution.product_id
+    if emit:
+        emit("meta", {"session_id": session_id, "product_id": product_id})
     cache_key = cache.make_cache_key(query, product_id=product_id)
     config = make_thread_config(session_id, product_id)
     previous_state = agent.get_state(config).values
@@ -144,20 +175,51 @@ def agent_invoke(
 
     # 每个商品和全库模式分别保存状态，切换回来即可继续原来的对话。
     inputs = {"messages": [user_message], "product_id": product_id}
-    if trace is None:
+    if trace is None and emit is None:
         result = agent.invoke(inputs, config=config)
     else:
         result = None
         for mode, event in agent.stream(
-            inputs, config=config, stream_mode=["updates", "values"]
+            inputs,
+            config=config,
+            stream_mode=["updates", "values", "messages"]
+            if emit
+            else ["updates", "values"],
         ):
-            if mode == "updates":
+            if mode == "messages" and emit:
+                chunk, metadata = event
+                if (
+                    isinstance(chunk, AIMessageChunk)
+                    and metadata.get("langgraph_node") == "final_answer"
+                    and "answer_draft" in metadata.get("tags", [])
+                ):
+                    content = chunk.content
+                    if isinstance(content, list):
+                        content = "".join(
+                            block.get("text", "")
+                            for block in content
+                            if isinstance(block, dict)
+                            and block.get("type") == "text"
+                        )
+                    if content:
+                        emit("delta", {"text": content})
+            elif mode == "updates":
+                if emit:
+                    emit(
+                        "status",
+                        {
+                            "message": "正在整理回答…"
+                            if "tool_node" in event
+                            else "正在查阅商品资料…"
+                        },
+                    )
+            if mode == "updates" and trace is not None:
                 trace["steps"].extend(
                     name
                     for name in event
                     if name in {"llm_call", "tool_node", "final_answer"}
                 )
-            elif mode == "values":
+            if mode == "values":
                 result = event
         if result is None:
             raise RuntimeError("Agent did not produce a final state")
