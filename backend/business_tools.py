@@ -7,9 +7,11 @@ from typing import Annotated
 
 from langchain.tools import InjectedToolArg, tool
 from langchain_core.documents import Document
+from langchain_core.tools import ToolException
 
 from backend.citation import annotate_documents_for_citation, CITATION_MARKER_KEY
 from backend.products import load_products
+from backend.guardrails import has_instruction_attack
 from settings import PROJECT_ROOT
 
 BUSINESS_DATA_PATH = PROJECT_ROOT / "data" / "product_business.json"
@@ -127,6 +129,8 @@ def _result(kind, product_id, product_name, citation_start, variant=None):
         text = "演示业务接口结果（不代表真实在售商品或商业承诺）：\n" + json.dumps(
             data, ensure_ascii=False
         )
+        if has_instruction_attack(text):
+            raise ValueError("Unsafe business instructions")
         annotated, citations = annotate_documents_for_citation(
             [
                 Document(
@@ -142,10 +146,10 @@ def _result(kind, product_id, product_name, citation_start, variant=None):
         )
         return f"{annotated[0].metadata[CITATION_MARKER_KEY]}\n{text}", citations
     except (OSError, ValueError, KeyError, TypeError):
-        return (
-            "商品业务接口暂不可用，无法确认相关信息，请稍后重试；不要改用 RAG 猜测价格或售后。",
-            [],
-        )
+        # 使用工具协议标明失败；直接调用和正式图执行都不能把故障记为成功。
+        raise ToolException(
+            "商品业务接口暂不可用，无法确认相关信息，请稍后重试。"
+        ) from None
 
 
 @tool(response_format="content_and_artifact")
@@ -191,3 +195,8 @@ def after_sales_tool(
     未选择当前商品时，product_name 必须提供完整商品名或型号。仅返回演示规则，不能承诺实际订单符合条件。
     """
     return _result("售后", product_id, product_name, citation_start)
+
+
+# 保留独立调用时的友好错误，同时让正式执行节点识别 status=error。
+for _business_tool in (product_info_tool, price_tool, after_sales_tool):
+    _business_tool.handle_tool_error = True

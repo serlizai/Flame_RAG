@@ -5,14 +5,23 @@ from langchain.messages import SystemMessage, ToolMessage, AIMessage, HumanMessa
 from backend.state import MessagesState
 from typing import Literal
 import re
+import json
 from backend.tools import product_rag_tool
 from backend.business_tools import product_info_tool, price_tool, after_sales_tool
 from backend.config import model
 from backend.citation import Citation, resolve_answer_citations
 from backend.prompts import QA_PROMPT, build_system_prompt
+from prompts import SYSTEM_PROMPT
 from backend.products import load_products
 from backend.conversation import is_memory_question
 from backend.grounding import grounded_feature_excerpt, grounded_parameter_answer
+from backend.tool_execution import invoke_tool_safely
+from backend.guardrails import (
+    has_instruction_attack,
+    leaks_internal_prompt,
+    guard_user_question,
+    REFUSAL,
+)
 from backend.business_answers import (
     business_product,
     complete_business_calls,
@@ -37,6 +46,39 @@ def _messages_for_model(messages):
     """复制并统一旧会话中的工具名称，SQLite 原始历史继续保留。"""
     converted = []
     for message in messages:
+        if isinstance(message, HumanMessage):
+            guard = guard_user_question(message.content)
+            if guard.status != "allow":
+                message = message.model_copy(
+                    update={
+                        "content": guard.question
+                        or "先前的无效请求已拒绝，请回答当前商品问题。",
+                        "additional_kwargs": {},
+                    }
+                )
+        elif isinstance(message, AIMessage) and leaks_internal_prompt(
+            message.content, SYSTEM_PROMPT, QA_PROMPT
+        ):
+            message = message.model_copy(
+                update={"content": REFUSAL, "additional_kwargs": {}}
+            )
+        if isinstance(message, ToolMessage) and (
+            has_instruction_attack(str(message.content))
+            or any(
+                has_instruction_attack(
+                    c.get("snippet", "") if isinstance(c, dict) else c.snippet
+                )
+                for c in message.artifact or []
+            )
+        ):
+            # 历史检查点也可能保存旧版未过滤的资料，保留工具协议但隔离正文与引用。
+            message = message.model_copy(
+                update={
+                    "content": "历史商品资料不可用，请重新查询当前商品的有效资料。",
+                    "artifact": [],
+                    "status": "error",
+                }
+            )
         if isinstance(message, AIMessage) and (
             any(
                 call["name"] in _LEGACY_RETRIEVAL_TOOL_NAMES
@@ -68,16 +110,27 @@ def _context_citations(messages):
     """从当前商品的工具结果和缓存回答中收集可用引用。"""
     citations = []
     for message in messages:
-        if isinstance(message, ToolMessage) and message.artifact:
+        if (
+            isinstance(message, ToolMessage)
+            and message.status == "success"
+            and message.artifact
+            and not has_instruction_attack(str(message.content))
+        ):
             # 检查点恢复 ToolMessage 时，artifact 中的数据类可能变成字典。
             citations.extend(
                 Citation(**citation) if isinstance(citation, dict) else citation
                 for citation in message.artifact
+                if not has_instruction_attack(
+                    citation.get("snippet", "")
+                    if isinstance(citation, dict)
+                    else citation.snippet
+                )
             )
         elif isinstance(message, AIMessage):
             citations.extend(
                 Citation(**citation)
                 for citation in message.additional_kwargs.get("citations", [])
+                if not has_instruction_attack(citation.get("snippet", ""))
             )
     return citations
 
@@ -93,11 +146,46 @@ def _system_message(state: dict):
     return SystemMessage(content=prompt)
 
 
+def _blocked_answer():
+    """输出校验失败时不给引用，也不让该回答进入共享缓存。"""
+    return {
+        "messages": [
+            AIMessage(
+                content=REFUSAL,
+                additional_kwargs={"citations": [], "guardrail_blocked": True},
+            )
+        ]
+    }
+
+
+def _missing_retrieval_evidence(messages):
+    """商品知识检索已执行但没有可用依据时，结束循环并避免生成无依据事实。"""
+    question, turn = current_turn(messages)
+    results = [m for m in turn if isinstance(m, ToolMessage)]
+    users = [m for m in messages if isinstance(m, HumanMessage)]
+    return bool(
+        results
+        and all(
+            m.name in {"product_rag_tool", *_LEGACY_RETRIEVAL_TOOL_NAMES}
+            and m.status == "success"
+            for m in results
+        )
+        and not _context_citations(messages)
+        and not is_memory_question(question)
+        and users[-1].additional_kwargs.get("product_question") is not False
+    )
+
+
 # 语言模型调用节点
 # ---------
 def llm_call(state: dict):
     """模型选择工具，程序补齐明确业务请求中遗漏的专用工具。"""
     question, turn = current_turn(state["messages"])
+    if any(isinstance(m, ToolMessage) and m.status == "error" for m in turn):
+        # 本轮工具已失败，直接进入确定性提示，不让模型反复调用或猜测结果。
+        return {"messages": [AIMessage(content="")]}
+    if _missing_retrieval_evidence(state["messages"]):
+        return {"messages": [AIMessage(content="")]}
     required = required_business_tools(question)
     product = business_product(question, state.get("product_id")) if required else None
     focused = focused_business_question(question)
@@ -134,18 +222,12 @@ def tool_node(state: dict):
     for tool_call in state["messages"][-1].tool_calls:
         if tool_call["name"] in _LEGACY_RETRIEVAL_TOOL_NAMES:
             tool_call = {**tool_call, "name": product_rag_tool.name}
-        tool = tools_by_name[tool_call["name"]]
-        # 覆盖模型可能提交的同名参数，商品范围只信任服务端 State。
-        if tool.name in tools_by_name:
-            tool_call = {
-                **tool_call,
-                "args": {
-                    **tool_call["args"],
-                    "product_id": state.get("product_id"),
-                    "citation_start": citation_start,
-                },
-            }
-        tool_message = tool.invoke(tool_call)
+        tool_message = invoke_tool_safely(
+            tool_call,
+            tools_by_name,
+            product_id=state.get("product_id"),
+            citation_start=citation_start,
+        )
         result.append(tool_message)
         if tool_message.artifact:
             new_citations.extend(tool_message.artifact)
@@ -160,9 +242,32 @@ def tool_node(state: dict):
 def final_answer(state: dict):
     """工具循环结束后生成最终回答，并校验和整理引用编号。"""
 
-    messages = state["messages"]
+    messages = _messages_for_model(state["messages"])
+    _, turn = current_turn(messages)
+    failures = [m for m in turn if isinstance(m, ToolMessage) and m.status == "error"]
+    if failures:
+        # 失败时不调用生成模型，也不把旧轮或同批其他工具的结果补成完整答案。
+        content = "\n".join(dict.fromkeys(m.content for m in failures))
+        return {
+            "messages": [
+                AIMessage(content=content, additional_kwargs={"citations": []})
+            ]
+        }
+    if _missing_retrieval_evidence(messages):
+        return {
+            "messages": [
+                AIMessage(
+                    content="暂未查询到当前商品的相关资料，无法确认该问题。",
+                    additional_kwargs={"citations": [], "grounding_empty": True},
+                )
+            ]
+        }
 
-    context = "\n".join(m.content for m in messages if isinstance(m, ToolMessage))
+    context = "\n".join(
+        m.content
+        for m in messages
+        if isinstance(m, ToolMessage) and m.status == "success"
+    )
     question = next(
         m.content for m in reversed(messages) if isinstance(m, HumanMessage)
     )
@@ -176,18 +281,20 @@ def final_answer(state: dict):
             question, messages, state.get("product_id")
         )
 
-    qa_prompt = QA_PROMPT.format(context=context, input=question)
+    qa_prompt = QA_PROMPT.format(
+        context=json.dumps(context, ensure_ascii=False), input=question
+    )
 
     result = (
         AIMessage(content=grounded[0])
         if grounded
         else model.invoke(
-            [_system_message(state)]
-            + _messages_for_model(messages)
-            + [HumanMessage(content=qa_prompt)]
+            [_system_message(state)] + messages + [HumanMessage(content=qa_prompt)]
         )
     )
 
+    if leaks_internal_prompt(result.content, _system_message(state).content, QA_PROMPT):
+        return _blocked_answer()
     available_citations = _context_citations(messages)
     resolved_answer, kept_citations = resolve_answer_citations(
         result.content, available_citations
@@ -228,6 +335,10 @@ def final_answer(state: dict):
                 ),
             ]
         )
+        if leaks_internal_prompt(
+            repair.content, _system_message(state).content, QA_PROMPT
+        ):
+            return _blocked_answer()
         resolved_answer, kept_citations = resolve_answer_citations(
             repair.content, available_citations
         )
@@ -238,6 +349,10 @@ def final_answer(state: dict):
                 "暂未生成带有效引用的回答，请重试或查看本轮工具返回的原文。"
             )
     sources = "\n".join(f"[{c.number}] {c.label}" for c in kept_citations)
+    if leaks_internal_prompt(
+        resolved_answer, _system_message(state).content, QA_PROMPT
+    ):
+        return _blocked_answer()
     content = (
         f"{resolved_answer}\n\nSources:\n{sources}"
         if kept_citations

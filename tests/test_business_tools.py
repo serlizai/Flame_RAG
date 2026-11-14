@@ -87,17 +87,26 @@ def test_unavailable_configuration_has_no_substitute_price():
 
 
 @pytest.mark.parametrize(
-    "contents",
-    [None, "{", "[]", '{"demo":true,"products":[]}', '{"demo":true,"products":{}}'],
+    "contents, expected_status",
+    [
+        (None, "error"),
+        ("{", "error"),
+        ("[]", "error"),
+        ('{"demo":true,"products":[]}', "error"),
+        ('{"demo":true,"products":{}}', "success"),
+    ],
 )
+@pytest.mark.parametrize("tool", TOOLS)
 def test_unavailable_business_data_returns_no_citations(
-    tmp_path, monkeypatch, contents
+    tmp_path, monkeypatch, contents, expected_status, tool
 ):
     path = tmp_path / "business.json"
     if contents is not None:
         path.write_text(contents, encoding="utf-8")
     monkeypatch.setattr(business_tools, "BUSINESS_DATA_PATH", path)
-    result = invoke(business_tools.price_tool, product_id="vivo_x500_pro")
+    result = invoke(tool, product_id="vivo_x500_pro")
+    # 有效数据中未录入商品属于正常无资料，与文件损坏等运行故障区分。
+    assert result.status == expected_status
     assert not result.artifact and "price_fen" not in result.content
 
 

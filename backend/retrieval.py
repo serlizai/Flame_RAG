@@ -9,6 +9,8 @@ from backend.config import cache, CACHE_TTL, checkpointer
 from backend.sessions import make_thread_config
 from backend.tracing import collect_tool_trace
 from backend.conversation import load_context, resolve_conversation, save_context
+from backend.scope import assess_scope
+from backend.guardrails import guard_user_question
 from backend.citation import (
     citations_to_cache_payload,
     cache_payload_to_result,
@@ -39,16 +41,61 @@ def agent_invoke(
     session_id = session_id or str(uuid.uuid4())
     original_query = query
     previous_context = load_context(cache, session_id) if follow_conversation else {}
+    anchor = product_id or (
+        previous_context.get("product_id") if follow_conversation else None
+    )
+    guard = guard_user_question(query, product_id=anchor)
+    if guard.status == "refused":
+        history = cache.get_chat_history(session_id)
+        history.add_user_message(original_query)
+        history.add_ai_message(guard.message)
+        if trace is not None:
+            trace.clear()
+            trace.update(
+                cache_hit=False,
+                product_id=anchor,
+                tools=[],
+                steps=["guardrail_refuse"],
+                original_question=original_query,
+                resolved_question="",
+                session_id=session_id,
+                guardrail_status=guard.status,
+            )
+        return guard.message, [], session_id
+    query = guard.question
+    initial_config = make_thread_config(session_id, anchor)
+    initial_state = agent.get_state(initial_config).values
+    scope = assess_scope(
+        query,
+        product_id=anchor,
+        has_product_context=bool(previous_context.get("topics"))
+        or any(
+            (isinstance(m, ToolMessage) and m.status == "success")
+            or (
+                isinstance(m, HumanMessage)
+                and m.additional_kwargs.get("product_question")
+            )
+            for m in initial_state.get("messages", [])
+        ),
+    )
+    blocked = scope.status in {"out_of_scope", "clarify"}
+    if blocked:
+        # 不解析越界问题中的商品名和话题，避免改变上一轮商品上下文。
+        product_id = anchor
+    else:
+        query = scope.question
     resolution = (
         resolve_conversation(query, product_id, previous_context)
-        if follow_conversation
+        if follow_conversation and not blocked
         else None
     )
     if resolution:
         query, product_id = resolution.question, resolution.product_id
     cache_key = cache.make_cache_key(query, product_id=product_id)
     config = make_thread_config(session_id, product_id)
-    previous_state = agent.get_state(config).values
+    previous_state = (
+        initial_state if config == initial_config else agent.get_state(config).values
+    )
     first_turn = not previous_state.get("messages")
     if trace is not None:
         trace.clear()
@@ -64,6 +111,9 @@ def agent_invoke(
                 isinstance(message, HumanMessage)
                 for message in previous_state.get("messages", [])
             ),
+            scope_status=scope.status,
+            scope_question=scope.question,
+            guardrail_status=guard.status,
         )
         if resolution:
             trace.update(
@@ -73,27 +123,42 @@ def agent_invoke(
             trace["steps"].append("resolve_context")
 
     history = cache.get_chat_history(session_id)
+    if blocked:
+        answer = scope.message
+        # 展示历史保留原问题；商品图和话题索引不保存越界内容或含糊请求。
+        history.add_user_message(original_query)
+        history.add_ai_message(answer)
+        if trace is not None:
+            trace["steps"].append(
+                "scope_reject" if scope.status == "out_of_scope" else "scope_clarify"
+            )
+        return answer, [], session_id
+
+    metadata = {"product_question": scope.product_question}
+    if resolution and query != scope.question:
+        metadata.update(
+            original_question=scope.question,
+            resolved_topics=resolution.context["topics"],
+        )
     user_message = HumanMessage(
         content=query,
-        additional_kwargs={
-            "original_question": original_query,
-            "resolved_topics": resolution.context["topics"],
-        }
-        if query != original_query
-        else {},
+        additional_kwargs=metadata,
     )
+
+    def present_answer(answer):
+        return f"{answer}\n\n{scope.message}" if scope.status == "mixed" else answer
 
     def remember_context():
         if resolution:
             save_context(cache, session_id, resolution.context, CACHE_TTL)
 
     if resolution and resolution.clarification:
-        answer = resolution.clarification
+        answer = present_answer(resolution.clarification)
         agent.update_state(
             config,
             {
                 "messages": [
-                    HumanMessage(content=original_query),
+                    HumanMessage(content=scope.question),
                     AIMessage(content=answer),
                 ],
                 "product_id": product_id,
@@ -111,7 +176,14 @@ def agent_invoke(
         return answer, [], session_id
 
     # 有历史的追问依赖当前商品对话，不读取或覆盖跨会话共享的首轮答案。
-    cached_payload = cache.get(cache_key) if first_turn and use_cache else None
+    cached_payload = (
+        cache.get(cache_key)
+        if first_turn
+        and use_cache
+        and scope.status == "allow"
+        and guard.status == "allow"
+        else None
+    )
     if cached_payload is not None:
         if trace is not None:
             trace["cache_hit"] = True
@@ -167,9 +239,15 @@ def agent_invoke(
 
     answer = result["messages"][-1]
     citations = [Citation(**c) for c in answer.additional_kwargs.get("citations", [])]
+    output_blocked = answer.additional_kwargs.get("guardrail_blocked", False)
+    grounding_empty = answer.additional_kwargs.get("grounding_empty", False)
+    if trace is not None and output_blocked:
+        trace["guardrail_output_blocked"] = True
+    if trace is not None and grounding_empty:
+        trace["no_evidence"] = True
 
     history.add_user_message(original_query)
-    history.add_ai_message(answer.content)
+    history.add_ai_message(present_answer(answer.content))
     remember_context()
     # 业务数据可随时更新，包含价格/售后/商品接口调用的回答不进入共享缓存。
     has_business_call = any(
@@ -177,14 +255,27 @@ def agent_invoke(
         and message.name in {"product_info_tool", "price_tool", "after_sales_tool"}
         for message in result["messages"]
     )
-    if use_cache and first_turn and not has_business_call:
+    has_tool_error = any(
+        isinstance(message, ToolMessage) and message.status == "error"
+        for message in result["messages"]
+    )
+    if (
+        use_cache
+        and first_turn
+        and scope.status == "allow"
+        and guard.status == "allow"
+        and not output_blocked
+        and not grounding_empty
+        and not has_business_call
+        and not has_tool_error
+    ):
         cache.set(
             cache_key,
             citations_to_cache_payload(answer.content, citations),
             ttl=CACHE_TTL,
         )
 
-    return answer.content, citations, session_id
+    return present_answer(answer.content), citations, session_id
 
 
 # 命令行调用示例：if __name__ == "__main__":

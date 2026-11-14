@@ -267,6 +267,14 @@ RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_formal_api_integration.py -q -s
 
 2026-10-16 完成第五周第三、四步：新增正式 `POST /api/chat` 和轻量 `GET /api/health`，聊天入口复用原有校验、会话、过滤、引用和缓存。254 项离线测试通过；新增真实 Uvicorn TCP 测试 1 项通过，确认四个正式接口、404/422、新旧入口续聊、商品切换及模型调用为 0 的缓存命中。测试服务和随机 Redis 数据已清理，完成第五周接口验收，详见[第五周记录](docs/Week5_Formal_API.md)。
 
+2026-11-04 完成旧版第九周第一步“统一工具异常兜底”：未知工具、无效参数、检索及业务运行故障统一记为错误状态，返回友好提示；本轮失败后停止模型生成，不附引用、不沿用旧报价，也不写共享答案缓存，恢复后可继续重试。完整离线回归 431 项通过、15 项条件跳过，修改文件的 Ruff 检查通过。实现、范围和复现方法见[第九周工具异常记录](docs/Week9_Tool_Error_Handling.md)。
+
+2026-11-04 完成旧版第九周第二步“商品业务范围边界”：统一入口在答案缓存和 Agent 执行前判断范围，明确无关的问题直接提示，含糊请求先澄清；混合任务只处理商品部分，保留专用工具及引用。越界输入留在展示历史中，不覆盖商品图和追问话题；商品切换、对比及备注记忆继续保留。完整离线回归 502 项通过、15 项条件跳过，修改文件的 Ruff 检查通过。规则、适用范围和验收步骤见[业务范围记录](docs/Week9_Business_Scope.md)。
+
+2026-11-06 完成旧版第九周第三步“常见提示词注入防护与验收”：入口拒绝内部提示词读取和角色伪造，清理绕过工具的指令后继续查询实际商品数据；隔离检索及业务资料中的指令污染，补充历史消息和模板输出检查，提示词版本升级至 `product_prompt_v7`。完整默认回归572项通过、16项条件跳过；真实独立Agent十组场景全部通过，正式FastAPI入口另行验证相同十组场景通过。实现、受控资料说明、证据和复现命令见[提示词注入记录](docs/Week9_Prompt_Injection.md)。
+
+2026-11-10 新增第九周统一验收入口，覆盖七类约束、29组场景，并补齐完全空检索时直接说明缺资料且不缓存的程序约束，缓存版本升级为 `product_prompt_v8`。更新本地模型配置后，正式API统一验收**29组、37轮请求全部通过**，原先的模型服务阻断已解除。默认回归592项通过、17项条件跳过，前端8项通过且构建成功。页面先前已验证商品加载、URL定位及天气范围提示；本轮浏览器操作会话被停止，商品回答、引用展开、追问、备注及新对话仍待页面补验。证据和复现命令见[第九周统一验收记录](docs/Week9_Acceptance_Result.md)。
+
 主要文件：
 
 | 文件或目录 | 职责 |
@@ -276,6 +284,9 @@ RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_formal_api_integration.py -q -s
 | `backend/retrieval.py` | Agent 调用、会话、缓存和历史 |
 | `backend/sessions.py`、`backend/checkpoints.py` | 商品线程标识与 SQLite 检查点 |
 | `backend/graph.py`、`backend/nodes.py` | 模型与工具的工作流 |
+| `backend/tool_execution.py` | 工具调用异常、错误状态及友好提示 |
+| `backend/scope.py` | 商品业务范围判断、含糊请求澄清与混合任务拆分 |
+| `backend/guardrails.py` | 常见注入指令识别、商品查询恢复及模板输出检查 |
 | `backend/config.py`、`backend/embeddings.py` | 模型、商品库、Redis 配置与本地 BGE 加载 |
 | `backend/tools.py`、`citations.py` | 商品检索工具及引用处理 |
 | `prompts.py`、`backend/prompts.py` | 商品系统提示词、回答模板及后端统一导出 |

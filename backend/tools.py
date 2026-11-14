@@ -6,6 +6,9 @@ from backend.citation import annotate_documents_for_citation, CITATION_MARKER_KE
 from typing import Annotated
 
 from langchain.tools import InjectedToolArg, tool
+from langchain_core.tools import ToolException
+
+from backend.guardrails import has_instruction_attack
 
 
 @tool(response_format="content_and_artifact")
@@ -33,8 +36,16 @@ def product_rag_tool(
         search_options["filter"] = {"product_id": product_id}
     # 不指定商品时保留全库检索；指定商品却没有结果时，不扩大检索范围。
     result = product_vector_store.similarity_search(query, **search_options)
+    clean = [
+        doc
+        for doc in result
+        if not has_instruction_attack(doc.page_content)
+        and not has_instruction_attack(str(doc.metadata))
+    ]
+    if result and not clean:
+        raise ToolException("当前商品资料暂不可用，无法确认相关信息，请稍后重试。")
     annotated_docs, citations = annotate_documents_for_citation(
-        result, start_number=citation_start
+        clean, start_number=citation_start
     )
     content = "\n\n".join(
         f"{doc.metadata[CITATION_MARKER_KEY]}\n{doc.page_content}".strip()
@@ -46,3 +57,4 @@ def product_rag_tool(
 
 # 保留旧 Python 调用入口；模型只绑定 product_rag_tool 这个正式名称。
 retrieve_product_docs = product_rag_tool
+product_rag_tool.handle_tool_error = True

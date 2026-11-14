@@ -74,7 +74,8 @@ def is_memory_question(question):
     )
 
 
-def _mentioned_products(question, products):
+def mentioned_product_ids(question, products):
+    """按目录中的完整名称或型号识别商品，优先保留最长匹配。"""
     candidates = []
     text = _compact(question)
     for product in products.values():
@@ -153,7 +154,7 @@ def resolve_conversation(question, selected_product_id, previous, products=None)
             "unknown_product",
             "暂未查询到这个型号，请提供商品列表中的完整商品名称。",
         )
-    mentioned = _mentioned_products(question, products)
+    mentioned = mentioned_product_ids(question, products)
     if len(mentioned) > 1:
         return Resolution(
             None,

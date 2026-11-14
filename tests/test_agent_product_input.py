@@ -110,10 +110,10 @@ def test_same_question_has_separate_product_and_whole_library_caches(retrieval_e
 def test_switching_product_keeps_independent_conversations(retrieval_entry):
     entry, _, _ = retrieval_entry
     for query, product_id in (
-        ("第一个问题", "vivo_x500_pro"),
-        ("连续追问", "vivo_x500_pro"),
+        ("第一个商品问题", "vivo_x500_pro"),
+        ("商品连续追问", "vivo_x500_pro"),
         ("切换商品后的问题", "vivo_x500"),
-        ("全库问题", None),
+        ("全库商品问题", None),
     ):
         entry.agent_invoke(query, "session", product_id)
         config = make_thread_config("session", product_id)
@@ -125,8 +125,8 @@ def test_switching_product_keeps_independent_conversations(retrieval_entry):
 
 def test_different_sessions_keep_independent_product_state(retrieval_entry):
     entry, _, _ = retrieval_entry
-    entry.agent_invoke("问题一", "session-one", "vivo_x500_pro")
-    entry.agent_invoke("问题二", "session-two", "vivo_x500")
+    entry.agent_invoke("商品问题一", "session-one", "vivo_x500_pro")
+    entry.agent_invoke("商品问题二", "session-two", "vivo_x500")
     for session_id, product_id in (
         ("session-one", "vivo_x500_pro"),
         ("session-two", "vivo_x500"),
@@ -159,7 +159,7 @@ def test_returning_to_product_runs_with_its_own_history(
     entry, _, calls = retrieval_entry
     query = "商品问题"
     entry.agent_invoke(query, "session", cached_product_id)
-    entry.agent_invoke("另一个问题", "session", "vivo_x500")
+    entry.agent_invoke("另一个商品问题", "session", "vivo_x500")
     entry.agent_invoke(query, "session", cached_product_id)
 
     state = entry.agent.get_state(
@@ -197,7 +197,7 @@ def test_followup_ignores_cache_and_does_not_overwrite_first_turn_answer(
     """同样的问题在有历史时也重新执行图，且不能污染其他会话的首轮缓存。"""
     entry, cache, calls = retrieval_entry
     query = "刚才说的是什么？"
-    entry.agent_invoke("先前的对话", "session", "vivo_x500_pro")
+    entry.agent_invoke("先前的商品对话", "session", "vivo_x500_pro")
     key = cache.make_cache_key(query, "vivo_x500_pro")
     cache.values[key] = "特意设置为不能解析的缓存，确保追问完全跳过缓存"
     entry.agent_invoke(query, "session", "vivo_x500_pro")
@@ -208,10 +208,10 @@ def test_followup_ignores_cache_and_does_not_overwrite_first_turn_answer(
 def test_whole_library_and_product_threads_both_resume_their_history(retrieval_entry):
     entry, cache, calls = retrieval_entry
     for query, product_id in (
-        ("全库第一轮", None),
-        ("Pro 第一轮", "vivo_x500_pro"),
-        ("全库第二轮", None),
-        ("Pro 第二轮", "vivo_x500_pro"),
+        ("全库商品第一轮", None),
+        ("Pro 商品第一轮", "vivo_x500_pro"),
+        ("全库商品第二轮", None),
+        ("Pro 商品第二轮", "vivo_x500_pro"),
     ):
         entry.agent_invoke(query, "session", product_id)
     assert len(calls) == 4
@@ -219,6 +219,6 @@ def test_whole_library_and_product_threads_both_resume_their_history(retrieval_e
     for product_id, prefix in ((None, "全库"), ("vivo_x500_pro", "Pro")):
         state = entry.agent.get_state(make_thread_config("session", product_id)).values
         assert [m.content for m in state["messages"][::2]] == [
-            f"{prefix}第一轮" if prefix == "全库" else "Pro 第一轮",
-            f"{prefix}第二轮" if prefix == "全库" else "Pro 第二轮",
+            f"{prefix}商品第一轮" if prefix == "全库" else "Pro 商品第一轮",
+            f"{prefix}商品第二轮" if prefix == "全库" else "Pro 商品第二轮",
         ]
