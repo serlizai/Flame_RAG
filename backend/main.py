@@ -3,6 +3,7 @@
 from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Path, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from backend.citation import Citation
@@ -152,6 +153,26 @@ def get_product(
 def chat(request: QueryRequest) -> QueryResponse:
     """接收 JSON 消息并返回回答、引用和会话 ID，复用现有 Agent 链路。"""
     return _answer_request(request)
+
+
+@app.post(
+    "/api/chat/stream",
+    response_class=StreamingResponse,
+    summary="流式提交商品聊天消息",
+    tags=["聊天"],
+    responses={200: {"content": {"text/event-stream": {}}}},
+)
+def stream_chat(request: QueryRequest):
+    """正文增量先展示，done 返回引用校验后的最终回答。"""
+    if request.product_id is not None:
+        _get_product(request.product_id)
+    from backend.streaming import chat_events
+
+    return StreamingResponse(
+        chat_events(request),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get(

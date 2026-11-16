@@ -120,12 +120,59 @@ def guard_user_question(question, *, product_id=None):
     return GuardDecision("filtered", "\n".join(dict.fromkeys(questions)))
 
 
-def leaks_internal_prompt(answer, *templates):
-    """阻止模板长句被原样输出；普通身份说明和用户自己的备注不在此列。"""
-    compact_answer = re.sub(r"\s+", "", _normalise(answer)).casefold()
+def _compact_prompt_text(text):
+    return re.sub(r"\s+", "", _normalise(text)).casefold()
+
+
+def _protected_prompt_lines(templates):
     for template in templates:
         for line in template.splitlines():
-            literal = re.sub(r"\s+", "", _normalise(line)).casefold()
-            if len(literal) >= 28 and literal in compact_answer:
-                return True
-    return False
+            literal = _compact_prompt_text(line)
+            if len(literal) >= 28:
+                yield literal
+
+
+def leaks_internal_prompt(answer, *templates):
+    """阻止模板长句被原样输出；普通身份说明和用户自己的备注不在此列。"""
+    compact_answer = _compact_prompt_text(answer)
+    return any(line in compact_answer for line in _protected_prompt_lines(templates))
+
+
+class PromptSafeStream:
+    """暂存与内部模板前缀相同的尾部，避免长句在最终检查前流出。"""
+
+    def __init__(self, *templates):
+        self._literals = tuple(set(_protected_prompt_lines(templates)))
+        self._pending = ""
+        self._blocked = False
+
+    def push(self, text):
+        if self._blocked:
+            return ""
+        self._pending += text
+        compact = _compact_prompt_text(self._pending)
+        if any(line in compact for line in self._literals):
+            self._blocked = True
+            self._pending = ""
+            return ""
+        hold = max(
+            (
+                size
+                for line in self._literals
+                for size in range(1, min(len(compact), len(line) - 1) + 1)
+                if compact.endswith(line[:size])
+            ),
+            default=0,
+        )
+        cut = len(self._pending)
+        while (
+            cut and len(_compact_prompt_text(self._pending[:cut])) > len(compact) - hold
+        ):
+            cut -= 1
+        ready, self._pending = self._pending[:cut], self._pending[cut:]
+        return ready
+
+    def finish(self):
+        """仅在最终回答通过校验后，发送尚未构成内部模板长句的尾部。"""
+        ready, self._pending = self._pending, ""
+        return ready

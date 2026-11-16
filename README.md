@@ -185,6 +185,16 @@ curl -G 'http://127.0.0.1:8000/query' \
 
 新旧聊天入口共用会话，使用相同 `session_id` 和 `product_id` 即可续聊。不存在的商品返回 404，空问题及非法字段返回 422。每轮传入当前商品 ID；省略或传 `null` 表示独立的全库模式。指定 Pro 时工具只搜索 Pro，引用来源应为 `x500_pro.md`；改成 `vivo_x500`，应回答不支持无线充电且仅引用 `x500.md`。同会话的不同商品各有独立上下文，切回 Pro 会恢复之前的 Pro 对话，服务重启后也能续聊。
 
+Vue 页面现使用 `POST /api/chat/stream` 接收 SSE。可用以下命令检查事件流：
+
+```bash
+curl -N 'http://127.0.0.1:8000/api/chat/stream' \
+  -H 'Content-Type: application/json' \
+  --data '{"product_id":"vivo_x500_pro","message":"这款如何使用？","follow_conversation":true}'
+```
+
+`status` 表示处理状态，`meta` 携带会话和商品身份，`delta` 是回答初稿，`done` 返回校验后的完整回答及引用；前端以 `done` 替换初稿。缓存、明确业务字段及范围拒绝等分支可能直接返回最终回答，不一定产生正文增量。合并、发送前提示词检查及测试说明见 [SSE 整合记录](docs/SSE_Merge_Integration.md)。
+
 可选的 Streamlit 界面：
 
 ```bash
@@ -275,6 +285,8 @@ RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_formal_api_integration.py -q -s
 
 2026-11-10 新增第九周统一验收入口，覆盖七类约束、29组场景，并补齐完全空检索时直接说明缺资料且不缓存的程序约束，缓存版本升级为 `product_prompt_v8`。更新本地模型配置后，正式API统一验收**29组、37轮请求全部通过**，原先的模型服务阻断已解除。默认回归592项通过、17项条件跳过，前端8项通过且构建成功。页面先前已验证商品加载、URL定位及天气范围提示；本轮浏览器操作会话被停止，商品回答、引用展开、追问、备注及新对话仍待页面补验。证据和复现命令见[第九周统一验收记录](docs/Week9_Acceptance_Result.md)。
 
+2026-11-16 合并 `feat/cloudflare-frontend` 与 `feature/psc-rag-pipeline`。前者同步已有前端的提交历史；后者加入 SSE 流式聊天。保留第九周约束，并补齐发送初稿前的内部模板检查，避免最终拒绝前已经流出模板。默认后端回归616项通过、17项条件跳过，前端13项通过且构建成功；真实模型及浏览器补验未在本轮运行。详见 [SSE 整合记录](docs/SSE_Merge_Integration.md)。
+
 主要文件：
 
 | 文件或目录 | 职责 |
@@ -282,6 +294,7 @@ RUN_AGENT_INTEGRATION=1 uv run pytest tests/test_formal_api_integration.py -q -s
 | `backend/main.py` | FastAPI 商品列表、基础信息、正式聊天和存活检查 |
 | `backend/products.py`、`data/products.json` | 商品身份读取和 API 商品校验 |
 | `backend/retrieval.py` | Agent 调用、会话、缓存和历史 |
+| `backend/streaming.py` | SSE 事件、有界队列、心跳及断线与超时处理 |
 | `backend/sessions.py`、`backend/checkpoints.py` | 商品线程标识与 SQLite 检查点 |
 | `backend/graph.py`、`backend/nodes.py` | 模型与工具的工作流 |
 | `backend/tool_execution.py` | 工具调用异常、错误状态及友好提示 |
